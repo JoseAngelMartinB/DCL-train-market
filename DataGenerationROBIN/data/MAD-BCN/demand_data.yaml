@@ -242,8 +242,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 10000
-      high: 20000
+      low: 5000
+      high: 10000
     user_pattern_distribution:
     - id: 1
       percentage: 0.3
@@ -261,8 +261,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 10000
-      high: 25000
+      low: 5000
+      high: 12500
     user_pattern_distribution:
     - id: 1
       percentage: 0.1
@@ -280,8 +280,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 20000
-      high: 40000
+      low: 10000
+      high: 20000
     user_pattern_distribution:
     - id: 1
       percentage: 0.3
@@ -299,8 +299,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 20000
-      high: 45000
+      low: 10000
+      high: 22500
     user_pattern_distribution:
     - id: 1
       percentage: 0.1
@@ -318,8 +318,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 30000
-      high: 50000
+      low: 15000
+      high: 25000
     user_pattern_distribution:
     - id: 1
       percentage: 0.05
@@ -337,8 +337,8 @@ demandPattern:
   - market: 1
     potential_demand: randint
     potential_demand_kwargs:
-      low: 12500
-      high: 20000
+      low: 6250
+      high: 10000
     user_pattern_distribution:
     - id: 1
       percentage: 0.1
