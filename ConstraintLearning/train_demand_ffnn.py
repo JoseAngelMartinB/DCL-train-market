@@ -12,7 +12,9 @@ from sklearn.metrics import r2_score, mean_squared_error
 from utils import *
 
 # --- Config ---
-DATA_PATH = "cleaned_MAD-BCN_2025.csv"
+DATA_PATH = "preprocesed_data/cleaned_MAD-BCN_2025.csv"
+SAVED_MODEL_PATH = "saved_models/demand_ffnn_model.pt"
+FIG_PATH = "figures/demand_ffnn_"
 TARGET_COL = "passengers"
 BATCH_SIZE = 256
 N_EPOCHS = 2000
@@ -148,12 +150,12 @@ for epoch in range(N_EPOCHS):
             'feature_maxs': feature_maxs,
             'target_mean': target_mean,
             'target_std': target_std
-        }, 'best_ffnn_model.pt')
+        }, SAVED_MODEL_PATH)
         best_loss = val_loss
         best_epoch = epoch
 
 # --- Load best model before evaluation ---
-checkpoint = torch.load('best_ffnn_model.pt', weights_only=False)
+checkpoint = torch.load(SAVED_MODEL_PATH, weights_only=False)
 model.load_state_dict(checkpoint['model_state_dict'])
 feature_means = checkpoint['feature_means']
 feature_stds = checkpoint['feature_stds']
@@ -185,6 +187,7 @@ if SHOWPLOTS:
     plt.legend()
     plt.grid()
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "loss_curves.pdf")
     plt.show()
 
     plt.figure(figsize=(10, 5))
@@ -195,6 +198,7 @@ if SHOWPLOTS:
     plt.legend()
     plt.grid()
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "val_r2_curve.pdf")
     plt.show()
 
     # --- Plot predictions vs true values ---
@@ -206,6 +210,7 @@ if SHOWPLOTS:
     plt.plot([y_true_inv.min(), y_true_inv.max()], [y_true_inv.min(), y_true_inv.max()], 'r--')
     plt.grid()
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "predicted_vs_true.pdf")
     plt.show()
 
     # --- Plot histogram of prediction errors ---
@@ -216,6 +221,7 @@ if SHOWPLOTS:
     plt.title("Histogram of Prediction Errors")
     plt.grid()
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "prediction_errors_histogram.pdf")
     plt.show()
 
     # --- Plot histogram of true vs predicted values ---
@@ -227,6 +233,8 @@ if SHOWPLOTS:
     plt.ylabel("Frequency")
     plt.legend()
     plt.grid()
+    plt.tight_layout()
+    plt.savefig(FIG_PATH + "true_vs_predicted_histogram.pdf")
     plt.show()
 
     # --- Plot Empirical CDF of True vs Predicted Values ---
@@ -238,6 +246,8 @@ if SHOWPLOTS:
     plt.ylabel("Cumulative Probability")
     plt.legend()
     plt.grid()
+    plt.tight_layout()
+    plt.savefig(FIG_PATH + "empirical_cdf_true_vs_predicted.pdf")
     plt.show()
 
     # --- Count number of instances at a distance < d of the real value ---
@@ -272,6 +282,7 @@ if SHOWPLOTS:
     plt.ylabel("Drop in R² when permuted")
     plt.title("Permutation Feature Importance")
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "permutation_feature_importance.pdf")
     plt.show()
 
 # --- Partial Dependence Plot for Price ---
@@ -335,4 +346,5 @@ if PRICESENS:
     plt.legend(title='Train Type')
     plt.grid()
     plt.tight_layout()
+    plt.savefig(FIG_PATH + "partial_dependence_price.pdf")
     plt.show()

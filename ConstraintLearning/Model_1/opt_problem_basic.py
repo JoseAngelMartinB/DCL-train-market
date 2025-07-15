@@ -1,14 +1,23 @@
+import os
+import sys
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import gurobipy as gp
 
-from utils import *
+# --- Add project root to sys.path for imports ---
+if __name__ == "__main__":
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+from ConstraintLearning.utils import *
 import pickle
 
 # --- Load trained model and scalers ---
-checkpoint = torch.load('best_ffnn_model.pt', map_location='cpu', weights_only=False)
+SAVED_MODEL_PATH = "../saved_models/demand_ffnn_model.pt"
+checkpoint = torch.load(SAVED_MODEL_PATH, map_location='cpu', weights_only=False)
 feature_means = checkpoint['feature_means']
 feature_stds = checkpoint['feature_stds']
 feature_mins = checkpoint['feature_mins']
@@ -29,8 +38,8 @@ model.eval()
 
 # --- Ask user for context day
 # # Load both DataFrames
-orig_df = pd.read_csv('data/MAD-BCN_2025.csv')
-cleaned_df = pd.read_csv('cleaned_MAD-BCN_2025.csv')
+orig_df = pd.read_csv('../../DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
+cleaned_df = pd.read_csv('../preprocesed_data/cleaned_MAD-BCN_2025.csv')
 
 # Extract date from service_id in the original DataFrame
 def extract_date(service_id):

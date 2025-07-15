@@ -42,7 +42,7 @@ def is_holiday_pm1(date, holiday_calendar):
     return 0
 
 if __name__ == "__main__":
-    path_data = "data/MAD-BCN_2025.csv"
+    path_data = "../DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv"
     X, y = load_data(path_data)
 
     # --- Add holiday features ---
@@ -73,4 +73,4 @@ if __name__ == "__main__":
     # Join X_processed and y into a single DataFrame and save as CSV
     df_clean = X_processed.copy()
     df_clean["passengers"] = y
-    df_clean.to_csv("cleaned_MAD-BCN_2025.csv", index=False)
+    df_clean.to_csv("preprocesed_data/cleaned_MAD-BCN_2025.csv", index=False)
