@@ -15,8 +15,21 @@ if __name__ == "__main__":
 from ConstraintLearning.utils import *
 import pickle
 
-# --- Load trained model and scalers ---
-SAVED_MODEL_PATH = "../saved_models/demand_ffnn_model.pt"
+# Get project root (same pattern as your sys.path addition)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
+
+# Check if file exists
+if not os.path.exists(SAVED_MODEL_PATH):
+    print(f"Model file not found at: {SAVED_MODEL_PATH}")
+    print("Available files in the directory:")
+    model_dir = os.path.dirname(SAVED_MODEL_PATH)
+    if os.path.exists(model_dir):
+        print(os.listdir(model_dir))
+    else:
+        print(f"Directory {model_dir} does not exist")
+    sys.exit(1)
+
 checkpoint = torch.load(SAVED_MODEL_PATH, map_location='cpu', weights_only=False)
 feature_means = checkpoint['feature_means']
 feature_stds = checkpoint['feature_stds']
@@ -38,8 +51,22 @@ model.eval()
 
 # --- Ask user for context day
 # # Load both DataFrames
-orig_df = pd.read_csv('../../DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
-cleaned_df = pd.read_csv('../preprocesed_data/cleaned_MAD-BCN_2025.csv')
+orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
+cleaned_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/cleaned_MAD-BCN_2025.csv')
+
+# Check if files exist
+if not os.path.exists(orig_csv_path):
+    print(f"Original CSV file not found at: {orig_csv_path}")
+    print(f"Project root: {project_root}")
+    sys.exit(1)
+
+if not os.path.exists(cleaned_csv_path):
+    print(f"Cleaned CSV file not found at: {cleaned_csv_path}")
+    print(f"Project root: {project_root}")
+    sys.exit(1)
+
+orig_df = pd.read_csv(orig_csv_path)
+cleaned_df = pd.read_csv(cleaned_csv_path)
 
 # Extract date from service_id in the original DataFrame
 def extract_date(service_id):
