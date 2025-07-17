@@ -281,3 +281,69 @@ elif opt_m.status == gp.GRB.INTERRUPTED:
         print(f"  RealDemand (min(capacity, output)): {RealDemands[train_idx].X}")
 else:
     print("No optimal solution found.")
+
+
+# --- Save results to CSV ---
+if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED]:
+    # Get the objective value
+    if opt_m.status == gp.GRB.OPTIMAL:
+        objective_value = opt_m.objVal
+    else:
+        objective_value = opt_m.objBound  # Use best bound if interrupted
+    
+    # Prepare data for CSV
+    results_data = []
+    for train_idx in range(n_trains_context):
+        # Get original price
+        original_price = day_context_matrix[train_idx][price_idx]
+        
+        # Get train type info
+        train_type_AVE = day_context_matrix[train_idx][feature_names.index('train_type_AVE')]
+        train_type_AVLO = day_context_matrix[train_idx][feature_names.index('train_type_AVLO')]
+        
+        # Determine train type string
+        if train_type_AVE == 1:
+            train_type = "AVE"
+        elif train_type_AVLO == 1:
+            train_type = "AVLO"
+        else:
+            # Check for IRYO and OUIGO
+            try:
+                train_type_IRYO = day_context_matrix[train_idx][feature_names.index('train_type_IRYO')]
+                if train_type_IRYO == 1:
+                    train_type = "IRYO"
+                else:
+                    train_type_OUIGO = day_context_matrix[train_idx][feature_names.index('train_type_OUIGO')]
+                    if train_type_OUIGO == 1:
+                        train_type = "OUIGO"
+                    else:
+                        train_type = "Other"
+            except ValueError:
+                # If IRYO/OUIGO columns don't exist, use "Other"
+                train_type = "Other"
+
+        
+        results_data.append({
+            'train_idx': train_idx,
+            'train_type': train_type,
+            'original_price': original_price,
+            'optimized_price': price_vars[train_idx].X,
+            'predicted_demand': output_vars[train_idx].X,
+            'real_demand': RealDemands[train_idx].X,
+            'capacity': capacity_values[train_idx]
+        })
+    
+    # Create DataFrame
+    results_df = pd.DataFrame(results_data)
+    
+    # Create filename with date and objective value
+    objective_str = f"{objective_value:.2f}".replace('.', '_')
+    filename = f"results_{day.replace('-', '_')}_obj_{objective_str}.csv"
+    filepath = os.path.join(os.path.dirname(__file__), filename)
+    
+    # Save to CSV
+    results_df.to_csv(filepath, index=False)
+    print(f"\nResults saved to: {filepath}")
+    print(f"Total revenue (objective): {objective_value:.2f}")
+else:
+    print("Cannot save results - optimization failed.")
