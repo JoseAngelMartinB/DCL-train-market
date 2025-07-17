@@ -291,9 +291,15 @@ if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED]:
     else:
         objective_value = opt_m.objBound  # Use best bound if interrupted
     
+    # Get the service_ids for the selected day
+    day_service_ids = orig_df[orig_df['date'] == day]['service_id'].tolist()
+    
     # Prepare data for CSV
     results_data = []
     for train_idx in range(n_trains_context):
+        # Get service_id as the train identifier
+        service_id = day_service_ids[train_idx]
+        
         # Get original price
         original_price = day_context_matrix[train_idx][price_idx]
         
@@ -324,7 +330,7 @@ if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED]:
 
         
         results_data.append({
-            'train_idx': train_idx,
+            'train_idx': service_id,  # Use service_id as train_idx
             'train_type': train_type,
             'original_price': original_price,
             'optimized_price': price_vars[train_idx].X,
