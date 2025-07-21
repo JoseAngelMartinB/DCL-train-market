@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import gurobipy as gp
 
-# --- Add project root to sys.path for imports ---
+# Add project root to sys.path for imports
 if __name__ == "__main__":
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     if project_root not in sys.path:
@@ -18,7 +18,8 @@ import pickle
 # Get project root (same pattern as your sys.path addition)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-# PARAMETERS
+
+# --- Config ---
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
 RENFE_PRICES_INTERVAL = [10, 160]
 DAY = '2025-03-12' # Weekday low demand day
@@ -352,7 +353,7 @@ if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED]:
     
     # Create filename with date and objective value
     objective_str = f"{objective_value:.2f}".replace('.', '_')
-    filename = f"results_{day.replace('-', '_')}_obj_{objective_str}.csv"
+    filename = f"results_{day}_obj_{objective_str}.csv"
     filepath = os.path.join(os.path.dirname(__file__), filename)
     
     # Save to CSV

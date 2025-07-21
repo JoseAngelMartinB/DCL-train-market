@@ -60,6 +60,7 @@ coverage.xml
 
 # Raw simulation data
 **/kernel_output/
+**/ROBIN_output/
 
 # Custom user ignores
 
