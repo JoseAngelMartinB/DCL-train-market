@@ -17,7 +17,14 @@ import pickle
 
 # Get project root (same pattern as your sys.path addition)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+
+# PARAMETERS
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
+RENFE_PRICES_INTERVAL = [10, 160]
+DAY = '2025-03-12' # Weekday low demand day
+#DAY = '2025-03-22' # Weekend low demand day
+#DAY = '2025-08-13' # Weekday low demand day
+#DAY = '2025-08-23' # Weekend low demand day
 
 # Check if file exists
 if not os.path.exists(SAVED_MODEL_PATH):
@@ -80,7 +87,7 @@ orig_df['date'] = orig_df['service_id'].apply(extract_date)
 
 # Add the date column to the cleaned DataFrame (same order)
 cleaned_df['date'] = orig_df['date']
-day = '2025-01-22'
+day = DAY
 total_passengers = cleaned_df[cleaned_df['date'] == day]['passengers'].sum()
 print(f"Total expected passengers for {day}: {total_passengers}")
 day_context_matrix = cleaned_df[cleaned_df['date'] == day].drop(columns=['passengers', 'date'], errors='ignore').to_numpy()
@@ -113,8 +120,8 @@ for train_idx in range(n_trains_context):
     train_type_AVLO = context[feature_names.index('train_type_AVLO')]
     
     if train_type_AVE == 1 or train_type_AVLO == 1:
-        price_var = opt_m.addVar(lb=context[price_idx]*0.75, #feature_mins[price_idx], 
-                                ub=context[price_idx]*1.25, #feature_maxs[price_idx], 
+        price_var = opt_m.addVar(lb=max(context[price_idx] - 50, RENFE_PRICES_INTERVAL[0]), #*0.75, #feature_mins[price_idx], 
+                                ub=min(context[price_idx] + 50, RENFE_PRICES_INTERVAL[1]),  #*1.25, #feature_maxs[price_idx], 
                                 name=f"price_var_{train_idx}")
     else:
         price_var = opt_m.addVar(lb=context[price_idx], 
@@ -334,6 +341,7 @@ if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED]:
             'train_type': train_type,
             'original_price': original_price,
             'optimized_price': price_vars[train_idx].X,
+            'difference': price_vars[train_idx].X - original_price,
             'predicted_demand': output_vars[train_idx].X,
             'real_demand': RealDemands[train_idx].X,
             'capacity': capacity_values[train_idx]
