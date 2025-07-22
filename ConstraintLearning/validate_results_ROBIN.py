@@ -10,6 +10,7 @@ from robin.kernel.entities import Kernel
 
 # --- Config ---
 model_subpath = 'Model_1/'
+ml_model = 'tree'
 days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
 
 path_config_supply = '../DataGenerationROBIN/data/MAD-BCN/supply_MAD-BCN_2025.yaml'
@@ -29,7 +30,7 @@ results_files = os.listdir(model_subpath)
 for day in days_to_test:
     print(f"Processing day: {day}")
     # Filter files for the current day using regex
-    pattern = re.compile(rf'results_{day}_obj_(\d+)_(\d+)\.csv')
+    pattern = re.compile(rf'results_{ml_model}_{day}_obj_(\d+)_(\d+)\.csv')
     matching_files = [f for f in results_files if pattern.match(f)]
     if not matching_files:
         print(f"No results found for day {day}. Skipping.")
