@@ -19,10 +19,15 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 # --- Config ---
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_tree_model.pkl")
 RENFE_PRICES_INTERVAL = [10, 160]
-DAY = '2025-03-12' # Weekday low demand day
-#DAY = '2025-03-22' # Weekend low demand day
-#DAY = '2025-08-13' # Weekday low demand day
-#DAY = '2025-08-23' # Weekend low demand day
+
+# Define different scenarios to test
+DELTA_VALUES = [5, 10, 20]
+DAYS = [
+    '2025-03-12',  # Weekday low demand day
+    '2025-03-22',  # Weekend low demand day
+    '2025-08-13',  # Weekday high demand day
+    '2025-08-23'   # Weekend high demand day
+]
 
 # Check if file exists
 if not os.path.exists(SAVED_MODEL_PATH):
@@ -77,26 +82,7 @@ def extract_date(service_id):
     return f"{date_part[2]}-{date_part[1]}-{date_part[0]}"  # YYYY-MM-DD
 
 orig_df['date'] = orig_df['service_id'].apply(extract_date)
-
-# Add the date column to the cleaned DataFrame (same order)
 cleaned_df['date'] = orig_df['date']
-day = DAY
-total_passengers = cleaned_df[cleaned_df['date'] == day]['passengers'].sum()
-print(f"Total expected passengers for {day}: {total_passengers}")
-day_context_matrix = cleaned_df[cleaned_df['date'] == day].drop(columns=['passengers', 'date'], errors='ignore').to_numpy()
-cleaned_df.drop(columns=['passengers', 'date'], errors='ignore', inplace=True)
-
-feature_names = list(cleaned_df.columns)
-n_trains_context = day_context_matrix.shape[0]
-PRICE_COMP_M2_IDX = feature_names.index('price_competitor_-2')
-PRICE_COMP_M1_IDX = feature_names.index('price_competitor_-1')
-PRICE_COMP_P1_IDX = feature_names.index('price_competitor_1')
-PRICE_COMP_P2_IDX = feature_names.index('price_competitor_2')
-price_idx = feature_names.index('price')
-
-# --- Extract 'capacity' from original data ---
-capacity_values = orig_df['capacity'][orig_df['date'] == day].to_numpy()
-print("Capacity values from original data:", capacity_values)
 
 # --- Helper functions to encode decision tree in MILP ---
 def get_tree_structure(tree):
@@ -194,240 +180,266 @@ def add_tree_constraints(opt_model, tree_model, scaled_features, train_idx):
     
     return output_var
 
-# --- Set up Gurobi model for all trains in the day ---
-opt_m = gp.Model("TreePricingOptimization")
-opt_m.setParam('OutputFlag', 1)
+# Main optimization loop
+print("\n" + "="*60)
+print("STARTING OPTIMIZATION FOR ALL SCENARIOS")
+print("="*60)
 
-# --- Create all price variables first ---
-price_vars = []
-for train_idx in range(n_trains_context):
-    context = day_context_matrix[train_idx]
-    train_type_AVE = context[feature_names.index('train_type_AVE')]
-    train_type_AVLO = context[feature_names.index('train_type_AVLO')]
-    
-    if train_type_AVE == 1 or train_type_AVLO == 1:
-        price_var = opt_m.addVar(
-            lb=max(context[price_idx] - 10, RENFE_PRICES_INTERVAL[0]),
-            ub=min(context[price_idx] + 10, RENFE_PRICES_INTERVAL[1]),
-            name=f"price_var_{train_idx}"
-        )
-    else:
-        price_var = opt_m.addVar(
-            lb=context[price_idx], 
-            ub=context[price_idx], 
-            name=f"price_fixed_{train_idx}"
-        )
-    price_vars.append(price_var)
-
-opt_m.update()
-
-# --- Now embed the decision tree for each train ---
-output_vars = []
-s_aux_vars = []
-RealDemands = []
-
-for train_idx in range(n_trains_context):
-    context = day_context_matrix[train_idx]
-    capacity_value = capacity_values[train_idx]
-    train_type_AVE = context[feature_names.index('train_type_AVE')]
-    train_type_AVLO = context[feature_names.index('train_type_AVLO')]
-    
-    print(f"Train {train_idx}: train_type_AVE={train_type_AVE}, train_type_AVLO={train_type_AVLO}, price={context[price_idx]}, capacity={capacity_value}")
-
-    # --- Prepare scaled features for the tree ---
-    scaled_features = {}
-    
-    for i in range(len(feature_names)):
-        if i == price_idx:
-            if train_type_AVE == 1 or train_type_AVLO == 1:
-                # Use price variable and scale it
-                scaled_features[i] = (price_vars[train_idx] - feature_means[i]) / feature_stds[i]
-            else:
-                # Use fixed price and scale it
-                scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-        elif i in [PRICE_COMP_M2_IDX, PRICE_COMP_M1_IDX, PRICE_COMP_P1_IDX, PRICE_COMP_P2_IDX]:
-            # Handle competitor prices (same logic as NN version)
-            if i == PRICE_COMP_M2_IDX:
-                if train_idx < 2:  # First two trains
-                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-                else:
-                    scaled_features[i] = (price_vars[train_idx - 2] - feature_means[i]) / feature_stds[i]
-            elif i == PRICE_COMP_M1_IDX:
-                if train_idx < 1:  # First train
-                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-                else:
-                    scaled_features[i] = (price_vars[train_idx - 1] - feature_means[i]) / feature_stds[i]
-            elif i == PRICE_COMP_P1_IDX:
-                if train_idx >= n_trains_context - 1:  # Last train
-                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-                else:
-                    scaled_features[i] = (price_vars[train_idx + 1] - feature_means[i]) / feature_stds[i]
-            else:  # PRICE_COMP_P2_IDX
-                if train_idx >= n_trains_context - 2:  # Last two trains
-                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-                else:
-                    scaled_features[i] = (price_vars[train_idx + 2] - feature_means[i]) / feature_stds[i]
-        else:
-            # Fixed feature, scale it
-            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-    
-    # --- Add tree constraints and get output ---
-    output_var = add_tree_constraints(opt_m, tree_model, scaled_features, train_idx)
-    
-    # --- RealDemand logic (same as NN version) ---
-    cap = float(capacity_value)
-    M = cap * 1000
-
-    # First, handle max(0, output_var)
-    s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
-    bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")
-    bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
-    
-    opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
-    opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
-    opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name=f"output_var_nonneg_le_output_plus_M_{train_idx}")
-    opt_m.addConstr(s_aux <= M * bin1_aux, name=f"output_var_nonneg_le_M_{train_idx}")
-    opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
-    opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
-    
-    # RealDemand logic with capacity constraints
-    RealDemand = opt_m.addVar(lb=0, ub=cap, name=f"RealDemand_{train_idx}")
-    opt_m.addConstr(RealDemand <= s_aux, name=f"RealDemand_le_output_{train_idx}")
-    opt_m.addConstr(RealDemand >= s_aux - M * (1 - bin2_aux), name=f"RealDemand_ge_output_minus_M_{train_idx}")
-    opt_m.addConstr(RealDemand >= cap - M * bin2_aux, name=f"RealDemand_ge_cap_minus_M_{train_idx}")
-
-    output_vars.append(output_var)
-    s_aux_vars.append(s_aux)
-    RealDemands.append(RealDemand)
-    
-    opt_m.update()
-
-# --- Add total demand constraints ---
-opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.8 * total_passengers, name="min_total_demand")
-opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.2 * total_passengers, name="max_total_demand")
-
-# --- Objective: maximize revenue for AVE/AVLO trains ---
-total_revenue = gp.LinExpr()
-for i in range(n_trains_context):
-    train_type_AVE = day_context_matrix[i][feature_names.index('train_type_AVE')]
-    train_type_AVLO = day_context_matrix[i][feature_names.index('train_type_AVLO')]
-    if train_type_AVE == 1 or train_type_AVLO == 1:
-        total_revenue += price_vars[i] * RealDemands[i]
-
-opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
-opt_m.update()
-
-# --- Optimization parameters ---
-opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
-opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
-opt_m.setParam('TimeLimit', 3600)  # 1 hour time limit
-opt_m.optimize()
-
-# --- Print solution ---
-if opt_m.status == gp.GRB.OPTIMAL:
-    print("Optimal solution found:")
-    for train_idx in range(n_trains_context):
-        print(f"Train {train_idx}:")
-        print(f"  Optimal price: {price_vars[train_idx].X:.2f}")
-        print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
-        print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
-elif opt_m.status == gp.GRB.INTERRUPTED:
-    print("Optimization was interrupted.")
-    for train_idx in range(n_trains_context):
-        try:
-            print(f"Train {train_idx}:")
-            print(f"  Best price: {price_vars[train_idx].X:.2f}")
-            print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
-            print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
-        except:
-            print(f"  No solution available for train {train_idx}")
-elif opt_m.status == gp.GRB.TIME_LIMIT:
-    print("Time limit reached.")
-    for train_idx in range(n_trains_context):
-        try:
-            print(f"Train {train_idx}:")
-            print(f"  Best price: {price_vars[train_idx].X:.2f}")
-            print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
-            print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
-        except:
-            print(f"  No solution available for train {train_idx}")
-else:
-    print(f"Optimization failed with status: {opt_m.status}")
-
-# --- Save results to CSV ---
-if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
-    try:
-        # Get the objective value
-        if opt_m.status == gp.GRB.OPTIMAL:
-            objective_value = opt_m.objVal
-        else:
-            objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+for day in DAYS:
+    for delta in DELTA_VALUES:
+        print(f"\n{'='*50}")
+        print(f"OPTIMIZING: Day={day}, Delta=±{delta}")
+        print(f"{'='*50}")
         
-        # Get the service_ids for the selected day
-        day_service_ids = orig_df[orig_df['date'] == day]['service_id'].tolist()
+        # Prepare data for this day
+        total_passengers = cleaned_df[cleaned_df['date'] == day]['passengers'].sum()
+        print(f"Total expected passengers for {day}: {total_passengers}")
         
-        # Prepare data for CSV
-        results_data = []
+        # Get day-specific data
+        day_context_matrix = cleaned_df[cleaned_df['date'] == day].drop(columns=['passengers', 'date'], errors='ignore').to_numpy()
+        day_cleaned_df = cleaned_df.drop(columns=['passengers', 'date'], errors='ignore')
+        
+        feature_names = list(day_cleaned_df.columns)
+        n_trains_context = day_context_matrix.shape[0]
+        PRICE_COMP_M2_IDX = feature_names.index('price_competitor_-2')
+        PRICE_COMP_M1_IDX = feature_names.index('price_competitor_-1')
+        PRICE_COMP_P1_IDX = feature_names.index('price_competitor_1')
+        PRICE_COMP_P2_IDX = feature_names.index('price_competitor_2')
+        price_idx = feature_names.index('price')
+        
+        # Extract 'capacity' from original data
+        capacity_values = orig_df['capacity'][orig_df['date'] == day].to_numpy()
+        print("Capacity values from original data:", capacity_values[:5], "...")  # Show first 5
+
+        # --- Set up Gurobi model for all trains in the day ---
+        opt_m = gp.Model("TreePricingOptimization")
+        opt_m.setParam('OutputFlag', 1)
+
+        # --- Create all price variables first ---
+        price_vars = []
         for train_idx in range(n_trains_context):
-            try:
-                # Get service_id as the train identifier
-                service_id = day_service_ids[train_idx]
-                
-                # Get original price
-                original_price = day_context_matrix[train_idx][price_idx]
-                
-                # Get train type info
-                train_type_AVE = day_context_matrix[train_idx][feature_names.index('train_type_AVE')]
-                train_type_AVLO = day_context_matrix[train_idx][feature_names.index('train_type_AVLO')]
-                
-                # Determine train type string
-                if train_type_AVE == 1:
-                    train_type = "AVE"
-                elif train_type_AVLO == 1:
-                    train_type = "AVLO"
-                else:
-                    # Check for IRYO and OUIGO
-                    try:
-                        train_type_IRYO = day_context_matrix[train_idx][feature_names.index('train_type_IRYO')]
-                        if train_type_IRYO == 1:
-                            train_type = "IRYO"
+            context = day_context_matrix[train_idx]
+            train_type_AVE = context[feature_names.index('train_type_AVE')]
+            train_type_AVLO = context[feature_names.index('train_type_AVLO')]
+            
+            if train_type_AVE == 1 or train_type_AVLO == 1:
+                price_var = opt_m.addVar(
+                    lb=max(context[price_idx] - delta, RENFE_PRICES_INTERVAL[0]),
+                    ub=min(context[price_idx] + delta, RENFE_PRICES_INTERVAL[1]),
+                    name=f"price_var_{train_idx}"
+                )
+            else:
+                price_var = opt_m.addVar(
+                    lb=context[price_idx], 
+                    ub=context[price_idx], 
+                    name=f"price_fixed_{train_idx}"
+                )
+            price_vars.append(price_var)
+
+        opt_m.update()
+
+        # --- Now embed the decision tree for each train ---
+        output_vars = []
+        s_aux_vars = []
+        RealDemands = []
+
+        for train_idx in range(n_trains_context):
+            context = day_context_matrix[train_idx]
+            capacity_value = capacity_values[train_idx]
+            train_type_AVE = context[feature_names.index('train_type_AVE')]
+            train_type_AVLO = context[feature_names.index('train_type_AVLO')]
+            
+            print(f"Train {train_idx}: train_type_AVE={train_type_AVE}, train_type_AVLO={train_type_AVLO}, price={context[price_idx]}, capacity={capacity_value}")
+
+            # --- Prepare scaled features for the tree ---
+            scaled_features = {}
+            
+            for i in range(len(feature_names)):
+                if i == price_idx:
+                    if train_type_AVE == 1 or train_type_AVLO == 1:
+                        # Use price variable and scale it
+                        scaled_features[i] = (price_vars[train_idx] - feature_means[i]) / feature_stds[i]
+                    else:
+                        # Use fixed price and scale it
+                        scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                elif i in [PRICE_COMP_M2_IDX, PRICE_COMP_M1_IDX, PRICE_COMP_P1_IDX, PRICE_COMP_P2_IDX]:
+                    # Handle competitor prices (same logic as NN version)
+                    if i == PRICE_COMP_M2_IDX:
+                        if train_idx < 2:  # First two trains
+                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
                         else:
-                            train_type_OUIGO = day_context_matrix[train_idx][feature_names.index('train_type_OUIGO')]
-                            if train_type_OUIGO == 1:
-                                train_type = "OUIGO"
-                            else:
-                                train_type = "Other"
-                    except ValueError:
-                        train_type = "Other"
+                            scaled_features[i] = (price_vars[train_idx - 2] - feature_means[i]) / feature_stds[i]
+                    elif i == PRICE_COMP_M1_IDX:
+                        if train_idx < 1:  # First train
+                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        else:
+                            scaled_features[i] = (price_vars[train_idx - 1] - feature_means[i]) / feature_stds[i]
+                    elif i == PRICE_COMP_P1_IDX:
+                        if train_idx >= n_trains_context - 1:  # Last train
+                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        else:
+                            scaled_features[i] = (price_vars[train_idx + 1] - feature_means[i]) / feature_stds[i]
+                    else:  # PRICE_COMP_P2_IDX
+                        if train_idx >= n_trains_context - 2:  # Last two trains
+                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        else:
+                            scaled_features[i] = (price_vars[train_idx + 2] - feature_means[i]) / feature_stds[i]
+                else:
+                    # Fixed feature, scale it
+                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+            
+            # --- Add tree constraints and get output ---
+            output_var = add_tree_constraints(opt_m, tree_model, scaled_features, train_idx)
+            
+            # --- RealDemand logic (same as NN version) ---
+            cap = float(capacity_value)
+            M = cap * 1000
+
+            # First, handle max(0, output_var)
+            s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
+            bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")
+            bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
+            
+            opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
+            opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
+            opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name=f"output_var_nonneg_le_output_plus_M_{train_idx}")
+            opt_m.addConstr(s_aux <= M * bin1_aux, name=f"output_var_nonneg_le_M_{train_idx}")
+            opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
+            opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
+            
+            # RealDemand logic with capacity constraints
+            RealDemand = opt_m.addVar(lb=0, ub=cap, name=f"RealDemand_{train_idx}")
+            opt_m.addConstr(RealDemand <= s_aux, name=f"RealDemand_le_output_{train_idx}")
+            opt_m.addConstr(RealDemand >= s_aux - M * (1 - bin2_aux), name=f"RealDemand_ge_output_minus_M_{train_idx}")
+            opt_m.addConstr(RealDemand >= cap - M * bin2_aux, name=f"RealDemand_ge_cap_minus_M_{train_idx}")
+
+            output_vars.append(output_var)
+            s_aux_vars.append(s_aux)
+            RealDemands.append(RealDemand)
+            
+            opt_m.update()
+
+        # --- Add total demand constraints ---
+        opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.75 * total_passengers, name="min_total_demand")
+        opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.25 * total_passengers, name="max_total_demand")
+
+        # --- Objective: maximize revenue for AVE/AVLO trains ---
+        total_revenue = gp.LinExpr()
+        for i in range(n_trains_context):
+            train_type_AVE = day_context_matrix[i][feature_names.index('train_type_AVE')]
+            train_type_AVLO = day_context_matrix[i][feature_names.index('train_type_AVLO')]
+            if train_type_AVE == 1 or train_type_AVLO == 1:
+                total_revenue += price_vars[i] * RealDemands[i]
+
+        opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
+        opt_m.update()
+
+        # --- Optimization parameters ---
+        opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
+        opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
+        opt_m.setParam('TimeLimit', 3600)  # 1 hour time limit
+        opt_m.optimize()
+
+        # --- Print solution ---
+        if opt_m.status == gp.GRB.OPTIMAL:
+            print("Optimal solution found:")
+            for train_idx in range(min(5, n_trains_context)):  # Show first 5 trains only
+                print(f"Train {train_idx}:")
+                print(f"  Optimal price: {price_vars[train_idx].X:.2f}")
+                print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
+                print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
+            if n_trains_context > 5:
+                print(f"... (showing 5 out of {n_trains_context} trains)")
+        elif opt_m.status == gp.GRB.INTERRUPTED:
+            print("Optimization was interrupted.")
+        elif opt_m.status == gp.GRB.TIME_LIMIT:
+            print("Time limit reached.")
+        else:
+            print(f"Optimization failed with status: {opt_m.status}")
+
+        # --- Save results to CSV ---
+        if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
+            try:
+                # Get the objective value
+                if opt_m.status == gp.GRB.OPTIMAL:
+                    objective_value = opt_m.objVal
+                else:
+                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
                 
-                results_data.append({
-                    'train_idx': service_id,
-                    'train_type': train_type,
-                    'original_price': original_price,
-                    'optimized_price': price_vars[train_idx].X,
-                    'difference': price_vars[train_idx].X - original_price,
-                    'predicted_demand': output_vars[train_idx].X,
-                    'real_demand': RealDemands[train_idx].X,
-                    'capacity': capacity_values[train_idx]
-                })
-            except:
-                print(f"Error processing train {train_idx}, skipping...")
-                continue
-        
-        # Create DataFrame
-        results_df = pd.DataFrame(results_data)
-        
-        # Create filename with date and objective value
-        objective_str = f"{objective_value:.2f}".replace('.', '_')
-        filename = f"results_tree_{day}_obj_{objective_str}.csv"
-        filepath = os.path.join(os.path.dirname(__file__), filename)
-        
-        # Save to CSV
-        results_df.to_csv(filepath, index=False)
-        print(f"\nResults saved to: {filepath}")
-        print(f"Total revenue (objective): {objective_value:.2f}")
-        
-    except Exception as e:
-        print(f"Error saving results: {e}")
-else:
-    print("Cannot save results - optimization failed.")
+                # Get the service_ids for the selected day
+                day_service_ids = orig_df[orig_df['date'] == day]['service_id'].tolist()
+                
+                # Prepare data for CSV
+                results_data = []
+                for train_idx in range(n_trains_context):
+                    try:
+                        # Get service_id as the train identifier
+                        service_id = day_service_ids[train_idx]
+                        
+                        # Get original price
+                        original_price = day_context_matrix[train_idx][price_idx]
+                        
+                        # Get train type info
+                        train_type_AVE = day_context_matrix[train_idx][feature_names.index('train_type_AVE')]
+                        train_type_AVLO = day_context_matrix[train_idx][feature_names.index('train_type_AVLO')]
+                        
+                        # Determine train type string
+                        if train_type_AVE == 1:
+                            train_type = "AVE"
+                        elif train_type_AVLO == 1:
+                            train_type = "AVLO"
+                        else:
+                            # Check for IRYO and OUIGO
+                            try:
+                                train_type_IRYO = day_context_matrix[train_idx][feature_names.index('train_type_IRYO')]
+                                if train_type_IRYO == 1:
+                                    train_type = "IRYO"
+                                else:
+                                    train_type_OUIGO = day_context_matrix[train_idx][feature_names.index('train_type_OUIGO')]
+                                    if train_type_OUIGO == 1:
+                                        train_type = "OUIGO"
+                                    else:
+                                        train_type = "Other"
+                            except ValueError:
+                                train_type = "Other"
+                        
+                        results_data.append({
+                            'train_idx': service_id,
+                            'train_type': train_type,
+                            'original_price': original_price,
+                            'optimized_price': price_vars[train_idx].X,
+                            'difference': price_vars[train_idx].X - original_price,
+                            'predicted_demand': output_vars[train_idx].X,
+                            'real_demand': RealDemands[train_idx].X,
+                            'capacity': capacity_values[train_idx]
+                        })
+                    except:
+                        print(f"Error processing train {train_idx}, skipping...")
+                        continue
+                
+                # Create DataFrame
+                results_df = pd.DataFrame(results_data)
+                
+                # Create filename with date and objective value
+                objective_str = f"{objective_value:.2f}".replace('.', '_')
+                filename = f"results_tree_{day}_delta_{delta}_obj_{objective_str}.csv"
+                
+                # Create results_tree directory if it doesn't exist
+                results_dir = os.path.join(os.path.dirname(__file__), 'results_tree')
+                os.makedirs(results_dir, exist_ok=True)
+                
+                filepath = os.path.join(results_dir, filename)
+                
+                # Save to CSV
+                results_df.to_csv(filepath, index=False)
+                print(f"\nResults saved to: {filepath}")
+                print(f"Total revenue (objective): {objective_value:.2f}")
+                
+            except Exception as e:
+                print(f"Error saving results: {e}")
+        else:
+            print("Cannot save results - optimization failed.")
+
+print("\n" + "="*60)
+print("ALL SCENARIOS COMPLETED!")
+print("="*60)

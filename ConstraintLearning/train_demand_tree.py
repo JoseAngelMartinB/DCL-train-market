@@ -28,8 +28,8 @@ PRICESENS = True  # Set to False to disable sensitivity analysis
 # Grid search parameters for Decision Tree
 PARAM_GRID = {
     'max_depth': [5, 10, 15, 20, None],
-    'min_samples_split': [2, 5, 10, 20],
-    'min_samples_leaf': [1, 2, 5, 10],
+    'min_samples_split': [5, 10, 15, 20],
+    'min_samples_leaf': [2, 5, 7, 10],
     'max_features': ['sqrt', 'log2', None]
 }
 
@@ -351,6 +351,7 @@ if PRICESENS:
         
         plt.xlabel('Price (€)')
         plt.ylabel('Predicted Passengers')
+        plt.ylim(0, 1000)
         plt.title('Decision Tree: Partial Dependence of Passengers on Price\n(baselines with train_type=1)')
         plt.legend(title='Train Type')
         plt.grid()
