@@ -121,8 +121,8 @@ for train_idx in range(n_trains_context):
     train_type_AVLO = context[feature_names.index('train_type_AVLO')]
     
     if train_type_AVE == 1 or train_type_AVLO == 1:
-        price_var = opt_m.addVar(lb=max(context[price_idx] - 5, RENFE_PRICES_INTERVAL[0]), #*0.75, #feature_mins[price_idx], 
-                                ub=min(context[price_idx] + 5, RENFE_PRICES_INTERVAL[1]),  #*1.25, #feature_maxs[price_idx], 
+        price_var = opt_m.addVar(lb=max(context[price_idx] - 10, RENFE_PRICES_INTERVAL[0]), #*0.75, #feature_mins[price_idx], 
+                                ub=min(context[price_idx] + 10, RENFE_PRICES_INTERVAL[1]),  #*1.25, #feature_maxs[price_idx], 
                                 name=f"price_var_{train_idx}")
     else:
         price_var = opt_m.addVar(lb=context[price_idx], 
@@ -255,8 +255,8 @@ for train_idx in range(n_trains_context):
     RealDemands.append(RealDemand)
     opt_m.update()
 
-opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.75 * total_passengers, name="min_total_demand")
-opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.25 * total_passengers, name="max_total_demand")
+opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.8 * total_passengers, name="min_total_demand")
+opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.2 * total_passengers, name="max_total_demand")
 opt_m.update()
 
 # --- Objective: maximize sum of all RealDemand * price_var for AVE/AVLO only ---
