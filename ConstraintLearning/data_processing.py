@@ -7,7 +7,7 @@ def load_data(path_data, y_col="passengers"):
     X = data.drop(columns=[y_col], axis=1, inplace=False)
     return X, y
 
-def clip_data(y, min_value=0, max_value=5000):
+def clip_data(y, min_value=0, max_value=1000):
     return np.clip(y, None, max_value)
 
 def sine_cosine_transform(df, col, period, drop=False):
@@ -42,7 +42,10 @@ def is_holiday_pm1(date, holiday_calendar):
     return 0
 
 if __name__ == "__main__":
-    path_data = "../DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv"
+    import os
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(BASE_DIR)
+    path_data = os.path.join(PROJECT_ROOT, "DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv")
     X, y = load_data(path_data)
 
     # --- Add holiday features ---
@@ -73,4 +76,5 @@ if __name__ == "__main__":
     # Join X_processed and y into a single DataFrame and save as CSV
     df_clean = X_processed.copy()
     df_clean["passengers"] = y
-    df_clean.to_csv("preprocesed_data/cleaned_MAD-BCN_2025.csv", index=False)
+    output_path = os.path.join(BASE_DIR, "preprocesed_data/cleaned_MAD-BCN_2025.csv")
+    df_clean.to_csv(output_path, index=False)
