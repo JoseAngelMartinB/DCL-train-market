@@ -12,15 +12,17 @@ from sklearn.metrics import r2_score, mean_squared_error
 from utils import *
 
 # --- Config ---
-DATA_PATH = "preprocesed_data/cleaned_MAD-BCN_2025.csv"
-SAVED_MODEL_PATH = "saved_models/demand_ffnn_model.pt"
-FIG_PATH = "figures/demand_ffnn_"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/cleaned_MAD-BCN_2025.csv")
+SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_ffnn_model.pt")
+FIG_PATH = os.path.join(BASE_DIR, "figures/demand_ffnn_")
 TARGET_COL = "passengers"
 BATCH_SIZE = 256
 N_EPOCHS = 2000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-3
-HIDDEN_LAYERS = [256]  # Example hidden layer sizes
+HIDDEN_LAYERS = [50,50]  # Example hidden layer sizes
 DROPOUT = 0.1
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
