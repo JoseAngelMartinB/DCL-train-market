@@ -144,7 +144,7 @@ def add_tree_constraints(opt_model, tree_model, scaled_features, train_idx):
             )
             
             # Big M constraint for left child (feature <= threshold)
-            M = 1e6
+            M = 10
             left_expr = scaled_features[feature_idx] - threshold - M * (1 - node_vars[left_child])
             opt_model.addConstr(
                 left_expr <= 0,

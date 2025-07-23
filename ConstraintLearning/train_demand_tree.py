@@ -22,8 +22,8 @@ FIG_PATH = os.path.join(BASE_DIR, "figures/demand_tree_")
 TARGET_COL = "passengers"
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
-SHOWPLOTS = True  # Set to False to disable plots
-PRICESENS = True  # Set to False to disable sensitivity analysis
+SHOWPLOTS = False  # Set to False to disable plots
+PRICESENS = False  # Set to False to disable sensitivity analysis
 
 # Grid search parameters for Decision Tree
 PARAM_GRID = {
@@ -94,8 +94,8 @@ base_model = DecisionTreeRegressor(random_state=RANDOM_STATE)
 grid_search = GridSearchCV(
     base_model, 
     PARAM_GRID, 
-    cv=5, 
-    scoring='neg_mean_absolute_error',  # Using MAE to match the FFNN
+    cv=3, 
+    scoring='neg_mean_squared_error',  # 'r2', 'neg_mean_absolute_error', 'neg_mean_squared_error'
     n_jobs=-1,
     verbose=1
 )
@@ -106,7 +106,7 @@ grid_search.fit(X_train_scaled, y_train_scaled)
 # Get best model
 best_model = grid_search.best_estimator_
 print(f"Best parameters: {grid_search.best_params_}")
-print(f"Best CV score (negative MAE): {grid_search.best_score_:.4f}")
+print(f"Best CV score: {grid_search.best_score_:.4f}")
 
 # --- Make predictions ---
 y_train_pred = best_model.predict(X_train_scaled)
@@ -117,11 +117,15 @@ train_r2 = r2_score(y_train_scaled, y_train_pred)
 val_r2 = r2_score(y_val_scaled, y_val_pred)
 train_mae = np.mean(np.abs(y_train_pred - y_train_scaled))
 val_mae = np.mean(np.abs(y_val_pred - y_val_scaled))
+train_mse = mean_squared_error(y_train_scaled, y_train_pred)
+val_mse = mean_squared_error(y_val_scaled, y_val_pred)
 
 print(f"Training R2: {train_r2:.4f}")
 print(f"Validation R2: {val_r2:.4f}")
 print(f"Training MAE (scaled): {train_mae:.4f}")
 print(f"Validation MAE (scaled): {val_mae:.4f}")
+print(f"Training MSE (scaled): {train_mse:.4f}")
+print(f"Validation MSE (scaled): {val_mse:.4f}")
 
 # --- Save model ---
 model_data = {
@@ -147,9 +151,10 @@ y_val_true_inv = y_val.values
 print("\n=== Final Results (Original Scale) ===")
 print(f"Final R2: {r2_score(y_val_true_inv, y_val_pred_inv):.4f}")
 print(f"Final RMSE: {np.sqrt(mean_squared_error(y_val_true_inv, y_val_pred_inv)):.4f}")
+print(f"Final MSE: {mean_squared_error(y_val_true_inv, y_val_pred_inv):.4f}")
 print(f"Mean absolute error: {np.mean(np.abs(y_val_pred_inv - y_val_true_inv)):.4f}")
 print(f"Mean true: {np.mean(y_val_true_inv):.2f}, Mean pred: {np.mean(y_val_pred_inv):.2f}")
-print(f"Number of negative predictions: {np.sum(y_val_pred_inv < 0)}")
+print(f"Number of negative predictions: {np.sum(y_val_pred_inv + 1e-6 < 0)}")
 
 # --- Plot Results ---
 if SHOWPLOTS:
@@ -341,12 +346,13 @@ if PRICESENS:
                 
             all_responses = np.array(all_responses)
             mean_response = all_responses.mean(axis=0)
-            std_response = all_responses.std(axis=0)
+            percentile_05 = np.percentile(all_responses, 5, axis=0)
+            percentile_95 = np.percentile(all_responses, 95, axis=0)
             
             plt.plot(prices_orig, mean_response, label=f'{train_type}', color=color, linewidth=2)
             plt.fill_between(prices_orig, 
-                           mean_response - std_response, 
-                           mean_response + std_response,
+                           percentile_05, 
+                           percentile_95,
                            color=color, alpha=0.15)
         
         plt.xlabel('Price (€)')
