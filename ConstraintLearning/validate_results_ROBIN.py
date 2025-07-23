@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import re
 import yaml
+import time
 
 from robin.kernel.entities import Kernel
 
@@ -15,7 +16,7 @@ optim_model = 'Model_1'
 ml_model_vect = ['tree']
 delta_vect = [5, 10, 20]
 days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
-num_simulations = 10
+num_simulations = 10 # 25
 
 model_subpath = f'{optim_model}'
 path_config_supply = '../DataGenerationROBIN/data/MAD-BCN/supply_MAD-BCN_2025.yaml'
@@ -36,10 +37,12 @@ final_results = pd.DataFrame(columns=[
     'original_passengers',
     'new_passengers_mean',
     'new_passengers_std',
+    'new_passengers_se',
     'original_revenue',
     'optimized_revenue',
     'actual_revenue_mean',
     'actual_revenue_std',
+    'actual_revenue_se',
     'revenue_difference',
     'revenue_difference_percentage',
     'average_price',
@@ -50,15 +53,16 @@ final_results = pd.DataFrame(columns=[
 
 #%%
 
+init_time = time.time()
 
 # Remove the previous output file if it exists
 if os.path.exists(os.path.join(path_kernel_output, model_subpath)):
     shutil.rmtree(os.path.join(path_kernel_output, model_subpath))
     print(f"Removed previous output directory: {os.path.join(path_kernel_output, model_subpath)}")
 
+
 for ml_model in ml_model_vect:
     print(f"\n\nProcessing ML model: {ml_model}")
-
 
     # Load the files and execute the ROBIN simulation for each delta value
     for delta in delta_vect:
@@ -212,11 +216,13 @@ for ml_model in ml_model_vect:
             actual_revenue = revenue_matrix.sum(axis=0)
             actual_revenue_mean = actual_revenue.mean()
             actual_revenue_std = actual_revenue.std()
+            actual_revenue_se = actual_revenue_std / np.sqrt(len(actual_revenue))
 
             passengers_matrix = np.array(day_data['passengers_list'].tolist(), dtype=int)
             new_passengers = passengers_matrix.sum(axis=0)
             new_passengers_mean = new_passengers.mean()
             new_passengers_std = new_passengers.std()
+            new_passengers_se = new_passengers_std / np.sqrt(len(new_passengers))
             
             print(f"Day {day}: Actual revenue (mean): {actual_revenue_mean:.2f}€, Original Revenue: {total_original_revenue:.2f}€, "
                 f"Difference: {actual_revenue_mean - total_original_revenue:.2f}€ ({(actual_revenue_mean - total_original_revenue) / total_original_revenue * 100:.2f}%)")
@@ -230,10 +236,12 @@ for ml_model in ml_model_vect:
                 'original_passengers': day_data['original_passengers'].sum(),
                 'new_passengers_mean': new_passengers_mean,
                 'new_passengers_std': new_passengers_std,
+                'new_passengers_se': new_passengers_se,
                 'original_revenue': total_original_revenue,
                 'optimized_revenue': best_optim_revenue[day],
                 'actual_revenue_mean': actual_revenue_mean,
                 'actual_revenue_std': actual_revenue_std,
+                'actual_revenue_se': actual_revenue_se,
                 'revenue_difference': actual_revenue_mean - total_original_revenue,
                 'revenue_difference_percentage': (actual_revenue_mean - total_original_revenue) / total_original_revenue * 100,
                 'average_price': day_data['optimized_price'].mean(),
@@ -251,5 +259,9 @@ if os.path.exists(os.path.join(path_kernel_output, model_subpath)):
     shutil.rmtree(os.path.join(path_kernel_output, model_subpath))
     print(f"Removed ROBIN output directory: {os.path.join(path_kernel_output, model_subpath)}")
 
+# Measure total execution time
+total_time = time.time() - init_time
+
 print("\nResults validated susccessfully!")
+print(f"Total execution time: {total_time / 60:.2f} minutes")
 print(f"Final results saved to {final_results_path}")
