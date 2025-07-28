@@ -545,7 +545,7 @@ for day in DAYS:
                 
                 # Create filename with date and objective value
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
-                filename = f"results_gbm_{day}_delta_{delta}_obj_{objective_str}.csv"
+                filename = f"{day}_delta_{delta}_obj_{objective_str}.csv"
                 
                 # Create results_gbm directory if it doesn't exist
                 results_dir = os.path.join(os.path.dirname(__file__), 'results_gbm')
