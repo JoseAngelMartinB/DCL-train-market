@@ -12,14 +12,14 @@
 
 Authors:
 * José Ángel Martín-Baos
-* Ricardo García Ródenas
-* Carlos Ruiz
 * Antonio Alcántara
+* Carlos Ruiz
+* Ricardo García Ródenas
 
 These codes are associated with the paper "Optimization with constraint learning for pricing services under competition". This paper can be downloaded from ArXiv at [-----](https://arxiv.org/abs/YYYY.NNNNN).
 
 If you use any part of the code or data provided in this repository, please cite it as:
-> José Ángel Martín-Baos, Ricardo García-Ródenas, Carlos Ruiz, Antonio Alcántara (2025). Optimization with constraint learning for pricing services under competition. ArXiv preprint. https://arxiv.org/abs/YYYY.NNNNN
+> José Ángel Martín-Baos, Antonio Alcántara, Carlos Ruiz, Ricardo García-Ródenas (2025). Optimization with constraint learning for pricing services under competition. ArXiv preprint. https://arxiv.org/abs/YYYY.NNNNN
 
 
 ## Software implementation
