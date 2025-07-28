@@ -20,7 +20,8 @@ num_simulations = 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 keep_validation_results = True # If True, keeps the validation results after execution
 reset_previous_output = False
-skip_previous_results = True
+skip_previous_results = False
+restricted_service_providers = None # [2,4] # 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO # Do not update prices for these service providers
 
 # --- Paths ---
 path_config_supply = '../DataGenerationROBIN/data/MAD-BCN/supply_MAD-BCN_2025.yaml'
@@ -129,11 +130,12 @@ for optim_model in optim_model_vect:
                 train_id = item['id']
                 price_row = optimized_prices[optimized_prices['train_idx'] == train_id]
                 if not price_row.empty:
-                    # Update the price in the supply configuration
-                    for od in item['origin_destination_tuples']:
-                        for seat in od['seats']:
-                            # Store price as a two-decimal float
-                            seat['price'] = float(np.round(price_row['optimized_price'].values[0], 2))
+                    if restricted_service_providers is None or int(item['train_service_provider']) not in restricted_service_providers:
+                        # Update the price in the supply configuration
+                        for od in item['origin_destination_tuples']:
+                            for seat in od['seats']:
+                                # Store price as a two-decimal float
+                                seat['price'] = float(np.round(price_row['optimized_price'].values[0], 2))
                 else:
                     print(f"Warning: No optimized price found for train {train_id} on day {item['date']}.")
 
