@@ -17,11 +17,13 @@ from ConstraintLearning.utils import *
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
-SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_gbm_model.pkl")
+SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
+HIDDEN_LAYERS = [64, 32] # Must match training
+DROPOUT = 0.2 # Must match training
 RENFE_PRICES_INTERVAL = [10, 160]
 
 # Define different scenarios to test (start with just one scenario for testing)
-DELTA_VALUES = [5,10,20]  # Test with Delta=0 first, then Delta=5 to verify the fix
+DELTA_VALUES = [5,10,20]  # Start with just one delta
 DAYS = [
     '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day
@@ -40,42 +42,22 @@ if not os.path.exists(SAVED_MODEL_PATH):
         print(f"Directory {model_dir} does not exist")
     sys.exit(1)
 
-# Load the Gradient Boosting model and scalers
-model_data = joblib.load(SAVED_MODEL_PATH)
-gbm_model = model_data['model']
-feature_scaler = model_data['feature_scaler']
-target_scaler = model_data['target_scaler']
-feature_means = model_data['feature_means']
-feature_stds = model_data['feature_stds']
-feature_mins = model_data['feature_mins']
-feature_maxs = model_data['feature_maxs']
-target_mean = model_data['target_mean']
-target_std = model_data['target_std']
+# Load the Neural Network model
+checkpoint = torch.load(SAVED_MODEL_PATH, map_location='cpu', weights_only=False)
+feature_means = checkpoint['feature_means']
+feature_stds = checkpoint['feature_stds']
+feature_mins = checkpoint['feature_mins']
+feature_maxs = checkpoint['feature_maxs']
+target_mean = checkpoint['target_mean']
+target_std = checkpoint['target_std']
 
-print(f"Loaded Gradient Boosting model with {gbm_model.n_estimators} trees")
-print(f"Learning rate: {gbm_model.learning_rate}")
-print(f"Each tree has max_depth: {gbm_model.max_depth}")
-
-# Calculate total nodes across all trees for complexity assessment
-total_nodes = sum(tree[0].tree_.node_count for tree in gbm_model.estimators_)
-print(f"Total nodes across all trees: {total_nodes}")
-
-# Use all trees for full GBM power
-trees_to_use = gbm_model.estimators_
-n_trees_to_use = len(trees_to_use)
-learning_rate = gbm_model.learning_rate
-# Fix initial_prediction to be a scalar
-if hasattr(gbm_model.init_, 'constant_'):
-    initial_prediction = float(gbm_model.init_.constant_[0])
-else:
-    initial_prediction = 0.0
-
-print(f"Using all {n_trees_to_use} trees for optimization")
-print(f"Learning rate: {learning_rate}")
-print(f"Initial prediction: {initial_prediction}")
-trees_nodes = sum(tree[0].tree_.node_count for tree in trees_to_use)
-print(f"Total nodes for optimization: {trees_nodes}")
-
+# Rebuild model architecture (match train script)
+input_size = len(feature_means)
+output_size = 1
+model = FeedForwardNN(input_size, output_size, HIDDEN_LAYERS, DROPOUT)
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+layers = getattr(model, 'layers')
 
 # --- Load both DataFrames ---
 orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
@@ -106,147 +88,10 @@ def extract_date(service_id):
 orig_df['date'] = orig_df['service_id'].apply(extract_date)
 cleaned_df['date'] = orig_df['date']
 
-# --- Helper functions to encode GBM in MILP ---
-def get_tree_structure(tree):
-    """Extract tree structure for MILP encoding"""
-    tree_ = tree.tree_
-    
-    # Get all nodes information
-    nodes_info = []
-    for node_id in range(tree_.node_count):
-        if tree_.children_left[node_id] != tree_.children_right[node_id]:  # Internal node
-            nodes_info.append({
-                'node_id': node_id,
-                'is_leaf': False,
-                'feature': tree_.feature[node_id],
-                'threshold': tree_.threshold[node_id],
-                'left_child': tree_.children_left[node_id],
-                'right_child': tree_.children_right[node_id]
-            })
-        else:  # Leaf node
-            nodes_info.append({
-                'node_id': node_id,
-                'is_leaf': True,
-                'value': tree_.value[node_id][0][0]  # Regression value
-            })
-    
-    return nodes_info
-
-def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, train_idx):
-    """Add constraints for a single tree in the Gradient Boosting model - optimized version"""
-    tree_info = get_tree_structure(tree)
-    
-    # Create all binary variables at once for better efficiency
-    node_vars = opt_model.addVars(
-        [node['node_id'] for node in tree_info],
-        vtype=gp.GRB.BINARY,
-        name=f"tree_{tree_idx}_node_train_{train_idx}"
-    )
-    
-    # Root node must be active
-    opt_model.addConstr(
-        node_vars[0] == 1, 
-        name=f"tree_{tree_idx}_root_train_{train_idx}"
-    )
-    
-    # Process internal nodes with optimized constraints
-    for node in tree_info:
-        if not node['is_leaf']:
-            node_id = node['node_id']
-            feature_idx = node['feature']
-            threshold = node['threshold']
-            left_child = node['left_child']
-            right_child = node['right_child']
-            
-            # Flow conservation: if node is active, exactly one child is active
-            opt_model.addConstr(
-                node_vars[left_child] + node_vars[right_child] == node_vars[node_id],
-                name=f"tree_{tree_idx}_flow_{node_id}_train_{train_idx}"
-            )
-            
-            # Use robust Big M values - not too tight to avoid infeasibility
-            # Features are standardized, so they typically range from -3 to +3
-            # Use conservative Big M values
-            M_left = 10  # Large enough for any reasonable standardized feature value
-            M_right = 10
-            
-            # Left child constraints (feature <= threshold when left child is active)
-            opt_model.addConstr(
-                scaled_features[feature_idx] - threshold - M_left * (1 - node_vars[left_child]) <= 0,
-                name=f"tree_{tree_idx}_left_{node_id}_train_{train_idx}"
-            )
-            
-            # Right child constraints (feature > threshold when right child is active)
-            opt_model.addConstr(
-                scaled_features[feature_idx] - threshold - 1e-6 + M_right * (1 - node_vars[right_child]) >= 0,
-                name=f"tree_{tree_idx}_right_{node_id}_train_{train_idx}"
-            )
-    
-    # Create tree output as weighted sum of leaf values
-    leaf_terms = []
-    for node in tree_info:
-        if node['is_leaf']:
-            leaf_terms.append(node['value'] * node_vars[node['node_id']])
-    
-    # Exactly one leaf must be active (SOS1 constraint - more efficient)
-    leaf_vars = [node_vars[node['node_id']] for node in tree_info if node['is_leaf']]
-    opt_model.addSOS(gp.GRB.SOS_TYPE1, leaf_vars)
-    
-    # Tree output
-    tree_output_var = opt_model.addVar(
-        lb=-gp.GRB.INFINITY, 
-        name=f"tree_{tree_idx}_out_train_{train_idx}"
-    )
-    
-    opt_model.addConstr(
-        tree_output_var == gp.quicksum(leaf_terms),
-        name=f"tree_{tree_idx}_sum_train_{train_idx}"
-    )
-    
-    return tree_output_var
-
-def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction):
-    """Add Gradient Boosting Machine constraints - following OptiCL approach"""
-    
-    # Get individual tree outputs 
-    tree_outputs = []
-    for tree_idx, tree_estimator in enumerate(trees_to_use):
-        # GBM estimators are stored as arrays, get the first (and only) tree
-        tree = tree_estimator[0]
-        tree_output = add_single_tree_constraints(
-            opt_model, tree, scaled_features, tree_idx, train_idx
-        )
-        tree_outputs.append(tree_output)
-    
-    # GBM output follows the formula: initial_prediction + learning_rate * sum(tree_outputs)
-    # This is the key difference from Random Forest which just averages the trees
-    gbm_output_scaled = opt_model.addVar(
-        lb=-gp.GRB.INFINITY, 
-        name=f"gbm_scaled_train_{train_idx}"
-    )
-    
-    # GBM prediction formula: y = initial_prediction + learning_rate * sum(tree_i)
-    opt_model.addConstr(
-        gbm_output_scaled == initial_prediction + learning_rate * gp.quicksum(tree_outputs),
-        name=f"gbm_prediction_train_{train_idx}"
-    )
-    
-    # Transform back to original scale
-    gbm_output_original = opt_model.addVar(
-        lb=-gp.GRB.INFINITY,
-        name=f"gbm_out_train_{train_idx}"
-    )
-    
-    opt_model.addConstr(
-        gbm_output_original == gbm_output_scaled * target_std + target_mean,
-        name=f"gbm_transform_train_{train_idx}"
-    )
-    
-    return gbm_output_original
 
 # Main optimization loop
 print("\n" + "="*60)
-print("STARTING GRADIENT BOOSTING OPTIMIZATION FOR ALL SCENARIOS")
+print("STARTING FEED-FORWARD NEURAL NETWORK (FFNN) OPTIMIZATION")
 print("="*60)
 
 for day in DAYS:
@@ -276,14 +121,14 @@ for day in DAYS:
         print("Capacity values from original data:", capacity_values[:5], "...")  # Show first 5
 
         # --- Set up Gurobi model for all trains in the day ---
-        opt_m = gp.Model("GradientBoostingPricingOptimization")
+        opt_m = gp.Model("FeedForwardNNOptimization")
         
         # Optimize Gurobi parameters for large MILPs
         opt_m.setParam('OutputFlag', 1)
         opt_m.setParam('Threads', 0)  # Use all available cores (0 = automatic)
-        #opt_m.setParam('MIPFocus', 3)  # Focus on improving bounds
-        #opt_m.setParam('Cuts', 2)  # Aggressive cuts
-        #opt_m.setParam('Presolve', 2)  # Aggressive presolve
+        opt_m.setParam('MIPFocus', 3)  # Focus on improving bounds
+        opt_m.setParam('Cuts', 2)  # Aggressive cuts
+        opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('Heuristics', 0.1)  # Spend 10% time on heuristics
 
         # --- Create all price variables first (batch creation) ---
@@ -313,7 +158,7 @@ for day in DAYS:
 
         opt_m.update()
 
-        # --- Now embed the Gradient Boosting Machine for each train ---
+        # --- Now embed the Feed-Forward Neural Network (FFNN) ---
         output_vars = []
         s_aux_vars = []
         ActualDemands = []
@@ -326,81 +171,95 @@ for day in DAYS:
             
             print(f"Train {train_idx}: train_type_AVE={train_type_AVE}, train_type_AVLO={train_type_AVLO}, price={context[price_idx]}, capacity={capacity_value}")
 
-            # --- Prepare scaled features for the Gradient Boosting Machine ---
-            scaled_features = {}
-            
-            for i in range(len(feature_names)):
+            # --- Build NN as MILP  (Mixed Integer Linear Programming) ---
+            x = {}
+            z = {}
+            x[0] = {}
+            z[0] = {}
+
+            x_maxs = {}
+            x_mins = {}
+            x_maxs[0] = {}
+            x_mins[0] = {}
+
+            l_0 = layers[0]
+            for i in range(l_0.in_features):
                 if i == price_idx:
                     if train_type_AVE == 1 or train_type_AVLO == 1:
-                        # Use price variable and scale it
-                        scaled_features[i] = (price_vars[train_idx] - feature_means[i]) / feature_stds[i]
+                        price_var = price_vars[train_idx]
+                        x[0][i] = (price_var - feature_means[i]) / feature_stds[i]
+                        x_maxs[0][i] = (feature_maxs[i] - feature_means[i]) / feature_stds[i]
+                        x_mins[0][i] = (feature_mins[i] - feature_means[i]) / feature_stds[i]
                     else:
-                        # Use fixed price and scale it
-                        scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        x_maxs[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        x_mins[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                 elif i in [PRICE_COMP_M2_IDX, PRICE_COMP_M1_IDX, PRICE_COMP_P1_IDX, PRICE_COMP_P2_IDX]:
-                    # Handle competitor prices - CORRECTED to match validation logic
+                    # Handle edge cases for competitor prices
                     if i == PRICE_COMP_M2_IDX:
-                        if train_idx < 2:  # First two trains - use original value
-                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        if train_idx < 2:  # First two trains
+                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         else:
-                            # Check if competitor train (train_idx-2) is AVE/AVLO
-                            competitor_context = day_context_matrix[train_idx - 2] 
-                            competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                            competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                            if competitor_AVE == 1 or competitor_AVLO == 1:
-                                scaled_features[i] = (price_vars[train_idx - 2] - feature_means[i]) / feature_stds[i]
-                            else:
-                                # Competitor is not AVE/AVLO, use its fixed original price
-                                scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                            prev_price = price_vars[train_idx - 2]
+                            x[0][i] = (prev_price - feature_means[i]) / feature_stds[i]
                     elif i == PRICE_COMP_M1_IDX:
-                        if train_idx < 1:  # First train - use original value
-                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        if train_idx < 1:  # First train
+                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         else:
-                            # Check if competitor train (train_idx-1) is AVE/AVLO
-                            competitor_context = day_context_matrix[train_idx - 1]
-                            competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                            competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                            if competitor_AVE == 1 or competitor_AVLO == 1:
-                                scaled_features[i] = (price_vars[train_idx - 1] - feature_means[i]) / feature_stds[i]
-                            else:
-                                # Competitor is not AVE/AVLO, use its fixed original price
-                                scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                            prev_price = price_vars[train_idx - 1]
+                            x[0][i] = (prev_price - feature_means[i]) / feature_stds[i]
                     elif i == PRICE_COMP_P1_IDX:
-                        if train_idx >= n_trains_context - 1:  # Last train - use original value
-                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        if train_idx >= n_trains_context - 1:  # Last train
+                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         else:
-                            # Check if competitor train (train_idx+1) is AVE/AVLO
-                            competitor_context = day_context_matrix[train_idx + 1]
-                            competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                            competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                            if competitor_AVE == 1 or competitor_AVLO == 1:
-                                scaled_features[i] = (price_vars[train_idx + 1] - feature_means[i]) / feature_stds[i]
-                            else:
-                                # Competitor is not AVE/AVLO, use its fixed original price
-                                scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                            next_price = price_vars[train_idx + 1]
+                            x[0][i] = (next_price - feature_means[i]) / feature_stds[i]
                     else:  # PRICE_COMP_P2_IDX
-                        if train_idx >= n_trains_context - 2:  # Last two trains - use original value
-                            scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        if train_idx >= n_trains_context - 2:  # Last two trains
+                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         else:
-                            # Check if competitor train (train_idx+2) is AVE/AVLO
-                            competitor_context = day_context_matrix[train_idx + 2]
-                            competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                            competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                            if competitor_AVE == 1 or competitor_AVLO == 1:
-                                scaled_features[i] = (price_vars[train_idx + 2] - feature_means[i]) / feature_stds[i]
-                            else:
-                                # Competitor is not AVE/AVLO, use its fixed original price
-                                scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                            next_price = price_vars[train_idx + 2]
+                            x[0][i] = (next_price - feature_means[i]) / feature_stds[i]
+                    # Set bounds for all competitor price features
+                    x_maxs[0][i] = (feature_maxs[i] - feature_means[i]) / feature_stds[i]
+                    x_mins[0][i] = (feature_mins[i] - feature_means[i]) / feature_stds[i]
                 else:
-                    # Fixed feature, scale it
-                    scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
-            
-            # --- Add Gradient Boosting Machine constraints and get output ---
-            output_var = add_gbm_constraints(opt_m, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction)
+                    x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                    x_maxs[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                    x_mins[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+            opt_m.update()
 
-            # --- ActualDemand logic  ---
+            for ind, layer in enumerate(layers):
+                l = layer
+                x[ind+1] = {}
+                z[ind+1] = {}
+                x_maxs[ind+1] = {}
+                x_mins[ind+1] = {}
+
+                for i in range(l.out_features):
+                    m = l.weight.detach().numpy()[i]
+                    b = l.bias.detach().numpy()[i]
+
+                    if ind < len(layers) - 1:
+                        ub = sum(x_maxs[ind][j] * max(0, m[j]) + x_mins[ind][j] * min(0, m[j]) for j in range(l.in_features)) + b
+                        lb = sum(x_mins[ind][j] * max(0, m[j]) + x_maxs[ind][j] * min(0, m[j]) for j in range(l.in_features)) + b
+                        x_maxs[ind+1][i] = ub
+                        x_mins[ind+1][i] = lb
+
+                        x[ind+1][i] = opt_m.addVar(0, max(0, ub), name=f'x_{ind+1}_{i}_train{train_idx}')
+                        z[ind+1][i] = opt_m.addVar(0, 1, vtype=gp.GRB.BINARY, name=f'z_{ind+1}_{i}_train{train_idx}')
+                        opt_m.addConstr(x[ind+1][i] >= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b)
+                        opt_m.addConstr(x[ind+1][i] <= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b - lb * (1 - z[ind+1][i]))
+                        opt_m.addConstr(x[ind+1][i] <= ub * z[ind+1][i])
+                    else:
+                        x[ind+1][i] = opt_m.addVar(lb=-gp.GRB.INFINITY, name=f'x_{ind+1}_{i}_train{train_idx}')
+                        opt_m.addConstr(x[ind+1][i] == (sum(x[ind][j] * m[j] for j in range(l.in_features)) + b) * target_std + target_mean)
+                        output_var = x[ind+1][i]
+                opt_m.update()
+
+            # --- ActualDemand for this train ---
             cap = float(capacity_value)
-            M = 2000
+            M = cap * 1000
 
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
@@ -408,7 +267,7 @@ for day in DAYS:
             bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
             opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
-            opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name=f"output_var_nonneg_le_output_plus_M_{train_idx}")
+            opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name="output_var_nonneg_le_output_plus_M")
             opt_m.addConstr(s_aux <= M * bin1_aux, name=f"output_var_nonneg_le_M_{train_idx}")
             opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
             opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
@@ -417,7 +276,7 @@ for day in DAYS:
             opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_ge_output_{train_idx}")
             opt_m.addConstr(ActualDemand >= s_aux - M * (1 - bin2_aux), name=f"ActualDemand_le_output_{train_idx}")
             opt_m.addConstr(ActualDemand >= cap - M * bin2_aux, name=f"ActualDemand_le_cap_minus_M_{train_idx}")
-            
+
             output_vars.append(output_var)
             s_aux_vars.append(s_aux)
             ActualDemands.append(ActualDemand)
@@ -439,9 +298,9 @@ for day in DAYS:
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
 
-        # --- Optimization parameters for large Gradient Boosting MILP ---
-        opt_m.setParam('MIPGap', 0.001)  # Allow 0.5% optimality gap for faster solutions
-        #opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
+        # --- Optimization parameters for Feed-Forward Neural Network MILP ---
+        opt_m.setParam('MIPGap', 0.01)  # Allow 1% optimality gap for faster solutions
+        opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
         opt_m.setParam('TimeLimit', 3 * 3600)  # 3 hour time limit
         
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
@@ -550,8 +409,8 @@ for day in DAYS:
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
                 filename = f"{day}_delta_{delta}_obj_{objective_str}.csv"
                 
-                # Create results_gbm directory if it doesn't exist
-                results_dir = os.path.join(os.path.dirname(__file__), 'results_gbm')
+                # Create results_ffnn directory if it doesn't exist
+                results_dir = os.path.join(os.path.dirname(__file__), 'results_ffnn')
                 os.makedirs(results_dir, exist_ok=True)
                 
                 filepath = os.path.join(results_dir, filename)
@@ -576,97 +435,38 @@ for day in DAYS:
             
             validation_results = []
             
-            # IMPORTANT FIX: Get all optimized prices first to ensure consistency
-            all_optimized_prices = []
-            for train_idx in range(n_trains_context):
-                all_optimized_prices.append(price_vars[train_idx].X)
-            
-            # DEBUG: Print first few optimized prices and their train types
-            print("DEBUG: First 5 optimized prices:")
-            for i in range(min(5, n_trains_context)):
-                train_context = day_context_matrix[i]
-                is_ave = train_context[feature_names.index('train_type_AVE')] == 1
-                is_avlo = train_context[feature_names.index('train_type_AVLO')] == 1
-                original_price = train_context[price_idx]
-                optimized_price = all_optimized_prices[i]
-                print(f"  Train {i}: AVE={is_ave}, AVLO={is_avlo}, original={original_price:.2f}, optimized={optimized_price:.2f}, diff={optimized_price-original_price:.2f}")
-            print()
-            
             for train_idx in range(n_trains_context):
                 try:
                     # Get optimized price from the optimization model
-                    optimized_price = all_optimized_prices[train_idx]
+                    optimized_price = price_vars[train_idx].X
                     
                     # Get optimization model's demand prediction
                     opt_demand_prediction = output_vars[train_idx].X
                     
                     # Prepare context with optimized price for ML model prediction
                     context = day_context_matrix[train_idx].copy()
+                    context[price_idx] = optimized_price
                     
-                    # CRITICAL FIX: Only update own price if this train is AVE/AVLO
-                    current_train_context = day_context_matrix[train_idx]
-                    current_AVE = current_train_context[feature_names.index('train_type_AVE')]
-                    current_AVLO = current_train_context[feature_names.index('train_type_AVLO')]
-                    
-                    if current_AVE == 1 or current_AVLO == 1:
-                        context[price_idx] = optimized_price
-                        # Note: optimized_price should differ from original for AVE/AVLO when delta > 0
-                    else:
-                        # For non-AVE/AVLO trains, keep original price exactly (no change)
-                        # context[price_idx] is already the original price from day_context_matrix
-                        pass
-                    
-                    # CORRECTED: Handle competitor prices using the SAME logic as optimization
-                    # Only update competitor prices if the competitor train is AVE/AVLO (has variable price)
+                    # Handle competitor prices - same logic as in optimization
                     if train_idx >= 2:  # Update price_competitor_-2
-                        competitor_train_idx = train_idx - 2
-                        competitor_context = day_context_matrix[competitor_train_idx]
-                        competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                        competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                        if competitor_AVE == 1 or competitor_AVLO == 1:
-                            context[PRICE_COMP_M2_IDX] = all_optimized_prices[competitor_train_idx]
-                        # If competitor is not AVE/AVLO, keep original fixed price (already in context)
-                        
+                        context[PRICE_COMP_M2_IDX] = price_vars[train_idx - 2].X
                     if train_idx >= 1:  # Update price_competitor_-1
-                        competitor_train_idx = train_idx - 1
-                        competitor_context = day_context_matrix[competitor_train_idx]
-                        competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                        competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                        if competitor_AVE == 1 or competitor_AVLO == 1:
-                            context[PRICE_COMP_M1_IDX] = all_optimized_prices[competitor_train_idx]
-                        
+                        context[PRICE_COMP_M1_IDX] = price_vars[train_idx - 1].X
                     if train_idx < n_trains_context - 1:  # Update price_competitor_1
-                        competitor_train_idx = train_idx + 1
-                        competitor_context = day_context_matrix[competitor_train_idx]
-                        competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                        competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                        if competitor_AVE == 1 or competitor_AVLO == 1:
-                            context[PRICE_COMP_P1_IDX] = all_optimized_prices[competitor_train_idx]
-                        
+                        context[PRICE_COMP_P1_IDX] = price_vars[train_idx + 1].X
                     if train_idx < n_trains_context - 2:  # Update price_competitor_2
-                        competitor_train_idx = train_idx + 2
-                        competitor_context = day_context_matrix[competitor_train_idx]
-                        competitor_AVE = competitor_context[feature_names.index('train_type_AVE')]
-                        competitor_AVLO = competitor_context[feature_names.index('train_type_AVLO')]
-                        if competitor_AVE == 1 or competitor_AVLO == 1:
-                            context[PRICE_COMP_P2_IDX] = all_optimized_prices[competitor_train_idx]
+                        context[PRICE_COMP_P2_IDX] = price_vars[train_idx + 2].X
                     
                     # Scale features for ML model
                     scaled_context = (context - feature_means) / feature_stds
                     
-                    # Convert to DataFrame with proper feature names to avoid sklearn warning
-                    scaled_context_df = pd.DataFrame(scaled_context.reshape(1, -1), columns=feature_names)
-                    
                     # Get ML model prediction
-                    ml_prediction_scaled = gbm_model.predict(scaled_context_df)[0]
+                    ml_prediction_scaled = model.predict(scaled_context.reshape(1, -1))[0]
                     ml_demand_prediction = ml_prediction_scaled * target_std + target_mean
                     
                     # Calculate difference
                     difference = abs(opt_demand_prediction - ml_demand_prediction)
                     relative_error = (difference / max(ml_demand_prediction, 1e-6)) * 100
-                    
-                    # Check if this is just numerical precision error
-                    is_precision_error = difference < 1e-6
                     
                     validation_results.append({
                         'train_idx': train_idx,
@@ -674,17 +474,13 @@ for day in DAYS:
                         'opt_demand_prediction': opt_demand_prediction,
                         'ml_demand_prediction': ml_demand_prediction,
                         'absolute_difference': difference,
-                        'relative_error_pct': relative_error,
-                        'is_precision_error': is_precision_error
+                        'relative_error_pct': relative_error
                     })
                     
                     # Print first 5 trains for quick inspection
                     if train_idx < 5:
                         print(f"Train {train_idx}:")
-                        print(f"  Train type: {day_context_matrix[train_idx][feature_names.index('train_type_AVE')]} (AVE), {day_context_matrix[train_idx][feature_names.index('train_type_AVLO')]} (AVLO)")
-                        print(f"  Original price: {day_context_matrix[train_idx][price_idx]:.2f}")
                         print(f"  Optimized price: {optimized_price:.2f}")
-                        print(f"  Context competitor prices: {context[PRICE_COMP_M2_IDX]:.2f}, {context[PRICE_COMP_M1_IDX]:.2f}, {context[PRICE_COMP_P1_IDX]:.2f}, {context[PRICE_COMP_P2_IDX]:.2f}")
                         print(f"  Opt model demand: {opt_demand_prediction:.2f}")
                         print(f"  ML model demand:  {ml_demand_prediction:.2f}")
                         print(f"  Absolute diff:    {difference:.2f}")
@@ -703,15 +499,12 @@ for day in DAYS:
                 max_abs_diff = validation_df['absolute_difference'].max()
                 mean_rel_error = validation_df['relative_error_pct'].mean()
                 max_rel_error = validation_df['relative_error_pct'].max()
-                precision_errors = validation_df['is_precision_error'].sum()
-                total_validations = len(validation_df)
                 
                 print(f"VALIDATION SUMMARY:")
                 print(f"  Mean absolute difference: {mean_abs_diff:.3f}")
                 print(f"  Max absolute difference:  {max_abs_diff:.3f}")
                 print(f"  Mean relative error:      {mean_rel_error:.2f}%")
                 print(f"  Max relative error:       {max_rel_error:.2f}%")
-                print(f"  Precision errors (< 1e-6): {precision_errors}/{total_validations} ({100*precision_errors/total_validations:.1f}%)")
                 
                 # Save validation results
                 if opt_m.status == gp.GRB.OPTIMAL:
@@ -720,7 +513,7 @@ for day in DAYS:
                     objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
                 
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
-                validation_filename = f"validation_gbm_{day}_delta_{delta}_obj_{objective_str}.csv"
+                validation_filename = f"validation_ffnn_{day}_delta_{delta}_obj_{objective_str}.csv"
                 validation_filepath = os.path.join(results_dir, validation_filename)
                 
                 validation_df.to_csv(validation_filepath, index=False)
@@ -735,5 +528,5 @@ for day in DAYS:
                 print("  ❌ VALIDATION FAILED: No valid predictions to compare!")
 
 print("\n" + "="*60)
-print("ALL GRADIENT BOOSTING SCENARIOS COMPLETED!")
+print("ALL FEED-FORWARD NEURAL NETWORK (FFNN) SCENARIOS COMPLETED!")
 print("="*60)

@@ -23,7 +23,10 @@ RENFE_PRICES_INTERVAL = [10, 160]
 # Define different scenarios to test (start with just one scenario for testing)
 DELTA_VALUES = [5,10,20]  # Start with just one delta
 DAYS = [
-    '2025-08-23',  # Just one day for testing
+    '2025-03-12',  # Weekday low demand day
+    '2025-03-22',  # Weekend low demand day
+    '2025-08-13',  # Weekday high demand day
+    '2025-08-23'   # Weekend high demand day
 ]
 
 # Check if file exists
@@ -305,7 +308,7 @@ for day in DAYS:
         # --- Now embed the Random Forest for each train (OptiCL style) ---
         output_vars = []
         s_aux_vars = []
-        RealDemands = []
+        ActualDemands = []
 
         for train_idx in range(n_trains_context):
             context = day_context_matrix[train_idx]
@@ -355,30 +358,30 @@ for day in DAYS:
             # --- Add Random Forest constraints (node-based approach) and get output ---
             output_var = add_rf_constraints(opt_m, trees_to_use, scaled_features, train_idx)
             
-            # --- RealDemand logic (simplified since RF predictions are positive) ---
+            # --- ActualDemand logic (simplified since RF predictions are positive) ---
             cap = float(capacity_value)
             M = 1000
             # Since RF predictions are always positive, s_aux is just output_var + small epsilon
             s_aux = opt_m.addVar(lb=0, name=f"demand_positive_{train_idx}")
             opt_m.addConstr(s_aux == output_var + 1e-6, name=f"demand_positive_constraint_{train_idx}")
             
-            # RealDemand is min(s_aux, capacity)
-            RealDemand = opt_m.addVar(lb=0, ub=cap, name=f"RealDemand_{train_idx}")
+            # ActualDemand is min(s_aux, capacity)
+            ActualDemand = opt_m.addVar(lb=0, ub=cap, name=f"ActualDemand_{train_idx}")
             bin_capacity = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_capacity_{train_idx}")
             
-            # If s_aux <= capacity, then RealDemand = s_aux
-            # If s_aux > capacity, then RealDemand = capacity
-            opt_m.addConstr(RealDemand <= s_aux, name=f"RealDemand_le_demand_{train_idx}")
-            opt_m.addConstr(RealDemand >= s_aux - M * bin_capacity, name=f"RealDemand_ge_demand_minus_M_{train_idx}")
-            opt_m.addConstr(RealDemand <= cap, name=f"RealDemand_le_capacity_{train_idx}")
-            opt_m.addConstr(RealDemand >= cap - M * (1 - bin_capacity), name=f"RealDemand_ge_capacity_minus_M_{train_idx}")
+            # If s_aux <= capacity, then ActualDemand = s_aux
+            # If s_aux > capacity, then ActualDemand = capacity
+            opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_le_demand_{train_idx}")
+            opt_m.addConstr(ActualDemand >= s_aux - M * bin_capacity, name=f"ActualDemand_ge_demand_minus_M_{train_idx}")
+            opt_m.addConstr(ActualDemand <= cap, name=f"ActualDemand_le_capacity_{train_idx}")
+            opt_m.addConstr(ActualDemand >= cap - M * (1 - bin_capacity), name=f"ActualDemand_ge_capacity_minus_M_{train_idx}")
             
             # Binary logic: if s_aux > capacity, bin_capacity = 1
             opt_m.addConstr(s_aux <= cap + M * bin_capacity, name=f"demand_capacity_logic_{train_idx}")
             
             output_vars.append(output_var)
             s_aux_vars.append(s_aux)
-            RealDemands.append(RealDemand)
+            ActualDemands.append(ActualDemand)
             
             opt_m.update()
 
@@ -392,7 +395,7 @@ for day in DAYS:
             train_type_AVE = day_context_matrix[i][feature_names.index('train_type_AVE')]
             train_type_AVLO = day_context_matrix[i][feature_names.index('train_type_AVLO')]
             if train_type_AVE == 1 or train_type_AVLO == 1:
-                total_revenue += price_vars[i] * RealDemands[i]
+                total_revenue += price_vars[i] * ActualDemands[i]
 
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
@@ -400,7 +403,7 @@ for day in DAYS:
         # --- Optimization parameters for large Random Forest MILP ---
         opt_m.setParam('MIPGap', 0.01)  # Allow 1% optimality gap for faster solutions
         opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
-        opt_m.setParam('TimeLimit', 10800)  # 3 hour time limit for full RF
+        opt_m.setParam('TimeLimit', 3 * 3600)  # 3 hour time limit
         
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
         
@@ -431,7 +434,7 @@ for day in DAYS:
                 print(f"Train {train_idx}:")
                 print(f"  Optimal price: {price_vars[train_idx].X:.2f}")
                 print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
-                print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
+                print(f"  ActualDemand (capped): {ActualDemands[train_idx].X:.2f}")
             if n_trains_context > 5:
                 print(f"... (showing 5 out of {n_trains_context} trains)")
         elif opt_m.status == gp.GRB.INTERRUPTED:
@@ -494,7 +497,7 @@ for day in DAYS:
                             'optimized_price': price_vars[train_idx].X,
                             'difference': price_vars[train_idx].X - original_price,
                             'predicted_demand': output_vars[train_idx].X,
-                            'real_demand': RealDemands[train_idx].X,
+                            'actual_demand': ActualDemands[train_idx].X,
                             'capacity': capacity_values[train_idx]
                         })
                     except:

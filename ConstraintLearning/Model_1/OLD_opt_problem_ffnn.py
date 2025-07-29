@@ -18,7 +18,6 @@ import pickle
 # Get project root (same pattern as your sys.path addition)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-
 # --- Config ---
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
 RENFE_PRICES_INTERVAL = [10, 160]
@@ -249,6 +248,10 @@ for train_idx in range(n_trains_context):
     opt_m.addConstr(RealDemand <= s_aux, name=f"RealDemand_ge_output_{train_idx}")
     opt_m.addConstr(RealDemand >= s_aux - M * (1 - bin2_aux), name=f"RealDemand_le_output_{train_idx}")
     opt_m.addConstr(RealDemand >= cap - M * bin2_aux, name=f"RealDemand_le_cap_minus_M_{train_idx}")
+
+
+
+
 
     output_vars.append(output_var)
     s_aux_vars.append(s_aux)

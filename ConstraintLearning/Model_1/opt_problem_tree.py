@@ -241,7 +241,7 @@ for day in DAYS:
         # --- Now embed the decision tree for each train ---
         output_vars = []
         s_aux_vars = []
-        RealDemands = []
+        ActualDemands = []
 
         for train_idx in range(n_trains_context):
             context = day_context_matrix[train_idx]
@@ -291,7 +291,7 @@ for day in DAYS:
             # --- Add tree constraints and get output ---
             output_var = add_tree_constraints(opt_m, tree_model, scaled_features, train_idx)
             
-            # --- RealDemand logic (same as NN version) ---
+            # --- ActualDemand logic (same as NN version) ---
             cap = float(capacity_value)
             M = cap * 1000
 
@@ -307,15 +307,15 @@ for day in DAYS:
             opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
             opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
             
-            # RealDemand logic with capacity constraints
-            RealDemand = opt_m.addVar(lb=0, ub=cap, name=f"RealDemand_{train_idx}")
-            opt_m.addConstr(RealDemand <= s_aux, name=f"RealDemand_le_output_{train_idx}")
-            opt_m.addConstr(RealDemand >= s_aux - M * (1 - bin2_aux), name=f"RealDemand_ge_output_minus_M_{train_idx}")
-            opt_m.addConstr(RealDemand >= cap - M * bin2_aux, name=f"RealDemand_ge_cap_minus_M_{train_idx}")
+            # ActualDemand logic with capacity constraints
+            ActualDemand = opt_m.addVar(lb=0, ub=cap, name=f"ActualDemand_{train_idx}")
+            opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_le_output_{train_idx}")
+            opt_m.addConstr(ActualDemand >= s_aux - M * (1 - bin2_aux), name=f"ActualDemand_ge_output_minus_M_{train_idx}")
+            opt_m.addConstr(ActualDemand >= cap - M * bin2_aux, name=f"ActualDemand_ge_cap_minus_M_{train_idx}")
 
             output_vars.append(output_var)
             s_aux_vars.append(s_aux)
-            RealDemands.append(RealDemand)
+            ActualDemands.append(ActualDemand)
             
             opt_m.update()
 
@@ -329,7 +329,7 @@ for day in DAYS:
             train_type_AVE = day_context_matrix[i][feature_names.index('train_type_AVE')]
             train_type_AVLO = day_context_matrix[i][feature_names.index('train_type_AVLO')]
             if train_type_AVE == 1 or train_type_AVLO == 1:
-                total_revenue += price_vars[i] * RealDemands[i]
+                total_revenue += price_vars[i] * ActualDemands[i]
 
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
@@ -337,7 +337,7 @@ for day in DAYS:
         # --- Optimization parameters ---
         opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
         opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
-        opt_m.setParam('TimeLimit', 3600)  # 1 hour time limit
+        opt_m.setParam('TimeLimit', 1 * 3600)  # 1 hour time limit
         opt_m.optimize()
 
         # --- Print solution ---
@@ -347,7 +347,7 @@ for day in DAYS:
                 print(f"Train {train_idx}:")
                 print(f"  Optimal price: {price_vars[train_idx].X:.2f}")
                 print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
-                print(f"  RealDemand (capped): {RealDemands[train_idx].X:.2f}")
+                print(f"  ActualDemand (capped): {ActualDemands[train_idx].X:.2f}")
             if n_trains_context > 5:
                 print(f"... (showing 5 out of {n_trains_context} trains)")
         elif opt_m.status == gp.GRB.INTERRUPTED:
@@ -410,7 +410,7 @@ for day in DAYS:
                             'optimized_price': price_vars[train_idx].X,
                             'difference': price_vars[train_idx].X - original_price,
                             'predicted_demand': output_vars[train_idx].X,
-                            'real_demand': RealDemands[train_idx].X,
+                            'actual_demand': ActualDemands[train_idx].X,
                             'capacity': capacity_values[train_idx]
                         })
                     except:

@@ -1,4 +1,4 @@
-train_idx,train_type,original_price,optimized_price,difference,predicted_demand,real_demand,capacity
+train_idx,train_type,original_price,optimized_price,difference,predicted_demand,actual_demand,capacity
 00021_22-03-2025-06.27,AVLO,24.41,34.41,9.999999999999996,270.5,270.5,581
 00005_22-03-2025-07.02,OUIGO,39.26,39.26,0.0,60.43750000000003,60.43750002754405,509
 00006_22-03-2025-07.27,AVE,73.51,65.5349998758092,-7.9750001241907995,27.571428571428573,27.571428571428573,414

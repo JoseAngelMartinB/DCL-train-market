@@ -1,4 +1,4 @@
-train_idx,train_type,original_price,optimized_price,difference,predicted_demand,real_demand,capacity
+train_idx,train_type,original_price,optimized_price,difference,predicted_demand,actual_demand,capacity
 00001_13-08-2025-06.12,AVLO,33.97,49.134999902313595,15.164999902313596,584.4284523809524,581.0,581
 00002_13-08-2025-06.22,IRYO,37.5,37.5,0.0,656.6452777777799,461.0,461
 00003_13-08-2025-06.27,AVE,39.92,56.529999996031336,16.609999996031334,341.0241161616171,341.0241171616171,359
