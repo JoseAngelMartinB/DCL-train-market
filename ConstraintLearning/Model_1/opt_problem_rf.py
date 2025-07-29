@@ -19,6 +19,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 # --- Config ---
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_rf_model.pkl")
 RENFE_PRICES_INTERVAL = [10, 160]
+TIME_LIMIT = 3 * 3600  # Time limit for optimization
 
 # Define different scenarios to test (start with just one scenario for testing)
 DELTA_VALUES = [5,10,20]  # Start with just one delta
@@ -403,7 +404,7 @@ for day in DAYS:
         # --- Optimization parameters for large Random Forest MILP ---
         opt_m.setParam('MIPGap', 0.01)  # Allow 1% optimality gap for faster solutions
         opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
-        opt_m.setParam('TimeLimit', 3 * 3600)  # 3 hour time limit
+        opt_m.setParam('TimeLimit', TIME_LIMIT)  # 3 hour time limit
         
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
         

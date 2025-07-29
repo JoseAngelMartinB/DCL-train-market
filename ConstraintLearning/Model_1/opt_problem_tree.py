@@ -19,6 +19,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 # --- Config ---
 SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_tree_model.pkl")
 RENFE_PRICES_INTERVAL = [10, 160]
+TIME_LIMIT = 1 * 3600  # Time limit for optimization
 
 # Define different scenarios to test
 DELTA_VALUES = [5, 10, 20]
@@ -337,7 +338,7 @@ for day in DAYS:
         # --- Optimization parameters ---
         opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
         opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
-        opt_m.setParam('TimeLimit', 1 * 3600)  # 1 hour time limit
+        opt_m.setParam('TimeLimit', TIME_LIMIT)  # 1 hour time limit
         opt_m.optimize()
 
         # --- Print solution ---
