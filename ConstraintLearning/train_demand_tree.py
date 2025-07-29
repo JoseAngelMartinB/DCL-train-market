@@ -174,7 +174,8 @@ if SHOWPLOTS:
     # --- Plot histogram of prediction errors ---
     plt.figure(figsize=(8, 6))
     errors = y_val_pred_inv - y_val_true_inv
-    plt.hist(errors, bins=100, color="blue", alpha=0.7)
+    plt.hist(errors, bins=200, color="blue", alpha=0.7)
+    plt.xlim(-300, 300)
     plt.xlabel("Prediction Error (Predicted - True)")
     plt.ylabel("Frequency")
     plt.title("Decision Tree: Histogram of Prediction Errors")

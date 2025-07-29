@@ -40,7 +40,7 @@ class FeedForwardNN(nn.Module):
 
 
 
-def mape_loss(y_pred, y_true):
+def mape_loss(y_pred, y_true, epsilon=1e-10):
     """
     Calculates the Mean Absolute Percentage Error.
     Args:
@@ -49,10 +49,24 @@ def mape_loss(y_pred, y_true):
     Returns:
         A PyTorch tensor with the MAPE loss.
     """
-    # Add a small epsilon to avoid division by zero
-    epsilon = 1e-10
     # Ensure tensors are on the same device and dtype
     y_true = y_true.to(y_pred.device, dtype=y_pred.dtype)
     
     mape = torch.mean(torch.abs((y_true - y_pred) / (y_true + epsilon))) * 100
     return mape
+
+
+def smape_score(y_pred, y_true, epsilon=1e-8):
+    """
+    Calculates the Symmetric Mean Absolute Percentage Error.
+    Args:
+        y_pred: The predicted values from the model.
+        y_true: The ground truth values.
+    Returns:
+        A float with the sMAPE value.
+    """
+    y_true = y_true.astype(np.float64)
+    y_pred = y_pred.astype(np.float64)
+    
+    smape_value = np.mean(np.abs(y_true - y_pred) / (np.abs(y_true) + np.abs(y_pred) + epsilon)) * 100
+    return smape_value
