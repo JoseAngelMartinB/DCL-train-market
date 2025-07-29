@@ -24,12 +24,12 @@ RENFE_PRICES_INTERVAL = [10, 160]
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
 
 # Define different scenarios to test (start with just one scenario for testing)
-DELTA_VALUES = [5,10,20]  # Start with just one delta
+DELTA_VALUES = [5,10]  # Start with just one delta
 DAYS = [
-    '2025-03-12',  # Weekday low demand day
+  #  '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day
-    '2025-08-13',  # Weekday high demand day
-    '2025-08-23'   # Weekend high demand day
+ #   '2025-08-13',  # Weekday high demand day
+#    '2025-08-23'   # Weekend high demand day
 ]
 
 # Check if file exists

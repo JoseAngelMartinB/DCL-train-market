@@ -13,7 +13,7 @@ from robin.kernel.entities import Kernel
 
 # --- Config ---
 optim_model_vect = ['Model_1'] # Model_1, Model_2, Model_3
-ml_model_vect = ['rf'] # tree, rf, gbm
+ml_model_vect = ['ffnn'] # tree, rf, gbm, ffnn
 delta_vect = [5, 10, 20]
 days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
 num_simulations = 10 # 25 # 50 # 100
@@ -276,6 +276,7 @@ for optim_model in optim_model_vect:
             # Save partial final results to a CSV file
             final_results.to_csv(final_results_path, index=False)
 
+# %%
 # Clean up ROBIN output files              
 if os.path.exists(os.path.join(path_kernel_output, model_subpath)):
     simulation_size_gb = sum(os.path.getsize(os.path.join(path_kernel_output, model_subpath, f)) for f in os.listdir(os.path.join(path_kernel_output, model_subpath)) if os.path.isfile(os.path.join(path_kernel_output, model_subpath, f))) / (1024 ** 3)
