@@ -1,33 +1,38 @@
 name: dcl-trainmarket
 channels:
+  - pytorch
   - conda-forge
   - gurobi
-  - pkgs/main
+  - defaults
 dependencies:
-  - bzip2=1.0.8
-  - ca-certificates
-  - gurobi
-  - ipykernel
-  - libffi=3.4.4
-  - ncurses=6.4
-  - openssl==3.5.0
+  - python=3.11
   - pip
-  - python=3.11.11
-  - pytorch
-  - readline=8.2
-  - ruff
-  - setuptools=75.8.0
-  - sqlite=3.45.3
-  - tk=8.6.14
+  - ipykernel
+  - pytorch=2.5.1
+  - gurobi
+  - libprotobuf=4.25.3
+  - protobuf=4.25.3
   - torchinfo
   - torchview
-  - tzdata=2025a
-  - wheel=0.45.1
-  - xz=5.6.4
-  - zlib=1.2.13
+  - ruff
+  - setuptools
+  - wheel
+  - readline
+  - tk
+  - xz
+  - zlib
+  - ncurses
+  - sqlite
+  - bzip2
+  - ca-certificates
+  - openssl
+  - tzdata
+  - libffi
+  - joblib
+  - scikit-learn
   - pip:
-    - holidays==0.70
-    - openpyxl==3.1.5
-    - poetry==2.1.2
-    - seaborn==0.13.2
-    - torch-summary==1.4.5
+      - holidays==0.70
+      - openpyxl==3.1.5
+      - poetry==2.1.2
+      - seaborn==0.13.2
+      - torch-summary==1.4.5
