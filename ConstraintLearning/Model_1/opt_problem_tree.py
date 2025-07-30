@@ -69,7 +69,7 @@ else:
     optim_results_df = pd.DataFrame(columns=[
         'filename', 'ml_model', 'day', 'delta', 'total_revenue', 'gap', 'n_vars',
         'n_bin_vars', 'n_cont_vars', 'n_constrs', 'peak_ram_usage_MB',
-        'status', 'time_seconds'
+        'status', 'time_seconds', 'executed_on'
     ])
 
 # Create results directory if it doesn't exist
@@ -381,7 +381,13 @@ for day in DAYS:
         # --- Optimization parameters ---
         opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
         opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
-        opt_m.setParam('TimeLimit', TIME_LIMIT)  # 1 hour time limit
+        opt_m.setParam('TimeLimit', TIME_LIMIT) # Set optimization time limit
+
+        # Add infeasibility debugging
+        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
+
+        print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
+
         monitoring_flag = True
         monitor_thread = threading.Thread(target=monitor_ram, args=(process,))
         monitor_thread.start()
@@ -493,7 +499,8 @@ for day in DAYS:
                     'n_constrs': opt_m.NumConstrs,
                     'peak_ram_usage_MB': peak_ram_mb,
                     'status': opt_m.status,
-                    'time_seconds': opt_m.Runtime
+                    'time_seconds': opt_m.Runtime,
+                    'executed_on': time.strftime("%Y-%m-%d %H:%M:%S")
                 }
                 optim_results_df = pd.concat([optim_results_df, pd.DataFrame([new_row])], ignore_index=True)
                 optim_results_df.to_csv(OPTIM_RESULTS_PATH, index=False)
