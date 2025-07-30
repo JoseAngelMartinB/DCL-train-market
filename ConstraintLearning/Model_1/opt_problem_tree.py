@@ -69,7 +69,7 @@ else:
     optim_results_df = pd.DataFrame(columns=[
         'filename', 'ml_model', 'day', 'delta', 'total_revenue', 'gap', 'n_vars',
         'n_bin_vars', 'n_cont_vars', 'n_constrs', 'peak_ram_usage_MB',
-        'status', 'time_seconds', 'executed_on'
+        'status', 'time_seconds', 'executed_on', 'device'
     ])
 
 # Create results directory if it doesn't exist
@@ -500,7 +500,8 @@ for day in DAYS:
                     'peak_ram_usage_MB': peak_ram_mb,
                     'status': opt_m.status,
                     'time_seconds': opt_m.Runtime,
-                    'executed_on': time.strftime("%Y-%m-%d %H:%M:%S")
+                    'executed_on': time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'device': os.uname().nodename,
                 }
                 optim_results_df = pd.concat([optim_results_df, pd.DataFrame([new_row])], ignore_index=True)
                 optim_results_df.to_csv(OPTIM_RESULTS_PATH, index=False)
