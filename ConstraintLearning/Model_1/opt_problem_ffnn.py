@@ -1,4 +1,7 @@
 import os
+import psutil
+import threading
+import time
 import sys
 import numpy as np
 import pandas as pd
@@ -13,15 +16,30 @@ if __name__ == "__main__":
 
 from ConstraintLearning.utils import *
 
+process = psutil.Process(os.getpid())
+peak_ram_mb = 0
+
+def monitor_ram(process, interval=0.5):
+    global peak_ram_mb
+    peak_ram_mb = 0
+    while monitoring_flag:
+        mem = process.memory_info().rss / (1024 * 1024)
+        if mem > peak_ram_mb:
+            peak_ram_mb = mem
+        time.sleep(interval)
+
 # Get project root (same pattern as your sys.path addition)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
-SAVED_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_ffnn_model.pt")
-HIDDEN_LAYERS = [64, 16] # Must match training
-DROPOUT = 0.2 # Must match training
+ML_MODEL_NAME = 'rf'
+SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
+RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
+CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
+OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
+DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with just one scenario for testing)
 DELTA_VALUES = [5,10]  # Start with just one delta
@@ -42,6 +60,29 @@ if not os.path.exists(SAVED_MODEL_PATH):
     else:
         print(f"Directory {model_dir} does not exist")
     sys.exit(1)
+
+# Load previous optimization results if available
+if os.path.exists(OPTIM_RESULTS_PATH):
+    optim_results_df = pd.read_csv(OPTIM_RESULTS_PATH)
+    print(f"Loaded previous optimization results from: {OPTIM_RESULTS_PATH}")
+else:
+    optim_results_df = pd.DataFrame(columns=[
+        'filename', 'ml_model', 'day', 'delta', 'total_revenue', 'gap', 'n_vars',
+        'n_bin_vars', 'n_cont_vars', 'n_constrs', 'peak_ram_usage_MB',
+        'status', 'time_seconds', 'executed_on'
+    ])
+
+# Create results directory if it doesn't exist
+os.makedirs(RESULTS_PATH, exist_ok=True)
+if CLEAR_PREVIOUS_RESULTS and os.path.exists(RESULTS_PATH):
+    print(f"Clearing previous results in: {RESULTS_PATH}")
+    # Remove all the csv files in the results directory
+    for file in os.listdir(RESULTS_PATH):
+        if file.endswith('.csv'):
+            file_path = os.path.join(RESULTS_PATH, file)
+            os.remove(file_path)
+    optim_results_df = optim_results_df[optim_results_df['ml_model'] != ML_MODEL_NAME]
+
 
 # Load the Neural Network model
 checkpoint = torch.load(SAVED_MODEL_PATH, map_location='cpu', weights_only=False)
@@ -302,15 +343,22 @@ for day in DAYS:
         # --- Optimization parameters for Feed-Forward Neural Network MILP ---
         opt_m.setParam('MIPGap', 0.01)  # Allow 1% optimality gap for faster solutions
         opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
-        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set time limit for optimization
-        
-        print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
-        
+        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set optimization time limit
+
         # Add infeasibility debugging
         #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
-        
+
+        print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
+
+        monitoring_flag = True
+        monitor_thread = threading.Thread(target=monitor_ram, args=(process,))
+        monitor_thread.start()
+
         opt_m.optimize()
-        
+
+        monitoring_flag = False
+        monitor_thread.join()
+
         # Check for infeasibility and provide debugging info
         if opt_m.status == gp.GRB.INFEASIBLE:
             print("Model is infeasible! Computing IIS...")
@@ -329,13 +377,13 @@ for day in DAYS:
         # --- Print solution ---
         if opt_m.status == gp.GRB.OPTIMAL:
             print("Optimal solution found:")
-            for train_idx in range(min(5, n_trains_context)):  # Show first 5 trains only
+            for train_idx in range(min(DISPLAY_LIMIT, n_trains_context)): # Display only a limited number of trains
                 print(f"Train {train_idx}:")
                 print(f"  Optimal price: {price_vars[train_idx].X:.2f}")
                 print(f"  Predicted demand: {output_vars[train_idx].X:.2f}")
                 print(f"  ActualDemand (capped): {ActualDemands[train_idx].X:.2f}")
-            if n_trains_context > 5:
-                print(f"... (showing 5 out of {n_trains_context} trains)")
+            if n_trains_context > DISPLAY_LIMIT:
+                print(f"... (showing {DISPLAY_LIMIT} out of {n_trains_context} trains)")
         elif opt_m.status == gp.GRB.INTERRUPTED:
             print("Optimization was interrupted.")
         elif opt_m.status == gp.GRB.TIME_LIMIT:
@@ -405,21 +453,35 @@ for day in DAYS:
                 
                 # Create DataFrame
                 results_df = pd.DataFrame(results_data)
-                
-                # Create filename with date and objective value
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
-                filename = f"{day}_delta_{delta}_obj_{objective_str}.csv"
+                results_filename = f"{day}_delta_{delta}_obj_{objective_str}.csv"
+                results_filepath = os.path.join(RESULTS_PATH, results_filename)
                 
-                # Create results_ffnn directory if it doesn't exist
-                results_dir = os.path.join(os.path.dirname(__file__), 'results_ffnn')
-                os.makedirs(results_dir, exist_ok=True)
-                
-                filepath = os.path.join(results_dir, filename)
-                
-                # Save to CSV
-                results_df.to_csv(filepath, index=False)
-                print(f"\nResults saved to: {filepath}")
+                # Save results to CSV
+                results_df.to_csv(results_filepath, index=False)
+                print(f"\nResults saved to: {results_filepath}")
                 print(f"Total revenue (objective): {objective_value:.2f}")
+
+                # Append to optimization results DataFrame
+                new_row = {
+                    'filename': results_filename,
+                    'ml_model': ML_MODEL_NAME,
+                    'day': day,
+                    'delta': delta,
+                    'total_revenue': objective_value,
+                    'gap': opt_m.MIPGap,
+                    'n_vars': opt_m.NumVars,
+                    'n_bin_vars': opt_m.NumBinVars,
+                    'n_cont_vars': opt_m.NumVars - opt_m.NumBinVars,
+                    'n_constrs': opt_m.NumConstrs,
+                    'peak_ram_usage_MB': peak_ram_mb,
+                    'status': opt_m.status,
+                    'time_seconds': opt_m.Runtime,
+                    'executed_on': time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                optim_results_df = pd.concat([optim_results_df, pd.DataFrame([new_row])], ignore_index=True)
+                optim_results_df.to_csv(OPTIM_RESULTS_PATH, index=False)
+                print(f"Optimization results updated in: {OPTIM_RESULTS_PATH}")
                 
             except Exception as e:
                 print(f"Error saving results: {e}")
