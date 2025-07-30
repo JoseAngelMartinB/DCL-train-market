@@ -502,6 +502,7 @@ for day in DAYS:
                 if opt_m.status == gp.GRB.OPTIMAL:
                     objective_value = opt_m.objVal
                 else:
+                    # For interrupted or time limit, use the best lower bound
                     objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
                 
                 # Get the service_ids for the selected day
