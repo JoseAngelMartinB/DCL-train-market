@@ -329,6 +329,7 @@ for day in DAYS:
         #opt_m.setParam('Cuts', 2)  # Aggressive cuts
         #opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('Heuristics', 0.1)  # Spend 10% time on heuristics
+        opt_m.setParam('NodefileStart', 8)  # Start writing node file after 8 MB
 
         # --- Create all price variables first (batch creation) ---
         price_vars = []

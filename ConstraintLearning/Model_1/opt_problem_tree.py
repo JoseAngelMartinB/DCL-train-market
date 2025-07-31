@@ -258,6 +258,7 @@ for day in DAYS:
         # --- Set up Gurobi model for all trains in the day ---
         opt_m = gp.Model("TreePricingOptimization")
         opt_m.setParam('OutputFlag', 1)
+        opt_m.setParam('NodefileStart', 8)  # Start writing node file after 8 MB
 
         # --- Create all price variables first ---
         price_vars = []
