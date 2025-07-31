@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchsummary import summary
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -17,12 +18,13 @@ DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/cleaned_MAD-BCN_2025.csv")
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_ffnn_model.pt")
 FIG_PATH = os.path.join(BASE_DIR, "figures/demand_ffnn_")
 TARGET_COL = "passengers"
-BATCH_SIZE = 128
+BATCH_SIZE = 512
 N_EPOCHS = 1000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
+EARLY_STOPPING_PATIENCE = 50  # Early stopping patience
 HIDDEN_LAYERS = [64, 16]
-DROPOUT = 0.2
+DROPOUT = 0.15
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
 SHOWPLOTS = True  # Set to False to disable plots
@@ -94,6 +96,8 @@ model.apply(init_weights)
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 criterion = nn.L1Loss()  # nn.MSELoss() #nn.L1Loss()
 
+print(summary(model, input_size=(input_size,)))
+
 # Add ReduceLROnPlateau scheduler
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
@@ -110,6 +114,7 @@ val_r2s = []
 val_smapes = []
 
 best_loss = float("inf")
+epochs_no_improve = 0  # Counter for early stopping
 best_epoch = -1
 
 # --- Training loop ---
@@ -152,8 +157,8 @@ for epoch in range(N_EPOCHS):
     # Step the scheduler
     scheduler.step(val_loss)
 
-    # --- Save best model ---
-    if val_loss < best_loss:
+    # --- Save best model & Early Stopping ---
+    if val_loss < best_loss - 1e-8:  # Allow for very small numerical differences
         torch.save(
             {
                 "model_state_dict": model.state_dict(),
@@ -168,6 +173,15 @@ for epoch in range(N_EPOCHS):
         )
         best_loss = val_loss
         best_epoch = epoch
+        epochs_no_improve = 0
+    else:
+        epochs_no_improve += 1
+        if epochs_no_improve >= EARLY_STOPPING_PATIENCE:
+            print(
+                f"Early stopping triggered after {epoch + 1} epochs – "
+                f"no improvement for {EARLY_STOPPING_PATIENCE} consecutive epochs."
+            )
+            break
 
 # --- Load best model before evaluation ---
 checkpoint = torch.load(SAVED_MODEL_PATH, weights_only=False)
