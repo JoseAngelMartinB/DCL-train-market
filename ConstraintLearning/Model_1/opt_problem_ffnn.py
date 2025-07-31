@@ -32,8 +32,8 @@ def monitor_ram(process, interval=0.5):
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
-ML_MODEL_NAME = 'rf'
-SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
+ML_MODEL_NAME = 'ffnn'
+SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pt")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
@@ -41,13 +41,18 @@ RENFE_PRICES_INTERVAL = [10, 160]
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
+# Specific parameters for Feed-Forward Neural Network (FFNN)
+# They should match the training script
+HIDDEN_LAYERS = [64, 16]
+DROPOUT = 0.2
+
 # Define different scenarios to test (start with just one scenario for testing)
-DELTA_VALUES = [5,10]  # Start with just one delta
+DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
 DAYS = [
-  #  '2025-03-12',  # Weekday low demand day
+    '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day
- #   '2025-08-13',  # Weekday high demand day
-#    '2025-08-23'   # Weekend high demand day
+    '2025-08-13',  # Weekday high demand day
+    '2025-08-23'   # Weekend high demand day
 ]
 
 # Check if file exists
@@ -85,6 +90,7 @@ if CLEAR_PREVIOUS_RESULTS and os.path.exists(RESULTS_PATH):
 
 
 # Load the Neural Network model
+print(f"Loading saved model from: {SAVED_MODEL_PATH}")
 checkpoint = torch.load(SAVED_MODEL_PATH, map_location='cpu', weights_only=False)
 feature_means = checkpoint['feature_means']
 feature_stds = checkpoint['feature_stds']
