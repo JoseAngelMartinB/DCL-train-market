@@ -32,7 +32,7 @@ def monitor_ram(process, interval=0.5):
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
-ML_MODEL_NAME = 'rf'
+ML_MODEL_NAME = 'gbm'
 SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
@@ -42,7 +42,7 @@ TIME_LIMIT = 3 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with just one scenario for testing)
-DELTA_VALUES = [5,10,20]  # Test with Delta=0 first, then Delta=5 to verify the fix
+DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
 DAYS = [
     '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day

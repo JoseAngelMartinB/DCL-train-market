@@ -42,7 +42,7 @@ TIME_LIMIT = 3 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with just one scenario for testing)
-DELTA_VALUES = [5,10,20]  # Start with just one delta
+DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
 DAYS = [
     '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day
