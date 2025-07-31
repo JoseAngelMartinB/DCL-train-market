@@ -487,6 +487,14 @@ for day in DAYS:
                 print(f"Total revenue (objective): {objective_value:.2f}")
 
                 # Append to optimization results DataFrame
+                if opt_m.status == gp.GRB.OPTIMAL:
+                    status_str = "Optimal"
+                elif opt_m.status == gp.GRB.INTERRUPTED:
+                    status_str = "Interrupted"
+                elif opt_m.status == gp.GRB.TIME_LIMIT:
+                    status_str = "Time Limit"
+                else:
+                    status_str = "Other"
                 new_row = {
                     'filename': results_filename,
                     'ml_model': ML_MODEL_NAME,
@@ -499,7 +507,7 @@ for day in DAYS:
                     'n_cont_vars': opt_m.NumVars - opt_m.NumBinVars,
                     'n_constrs': opt_m.NumConstrs,
                     'peak_ram_usage_MB': peak_ram_mb,
-                    'status': opt_m.status,
+                    'status': status_str,
                     'time_seconds': opt_m.Runtime,
                     'executed_on': time.strftime("%Y-%m-%d %H:%M:%S"),
                     'device': os.uname().nodename,
