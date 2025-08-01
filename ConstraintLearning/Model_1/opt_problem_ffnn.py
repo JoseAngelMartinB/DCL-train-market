@@ -39,12 +39,13 @@ CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
+MAX_PREDICTED_DEMAND = 2000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Specific parameters for Feed-Forward Neural Network (FFNN)
 # They should match the training script
-HIDDEN_LAYERS = [64, 16]
-DROPOUT = 0.2
+HIDDEN_LAYERS = [64, 8]
+DROPOUT = 0.1
 
 # Define different scenarios to test (start with just one scenario for testing)
 DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
@@ -308,7 +309,8 @@ for day in DAYS:
 
             # --- ActualDemand for this train ---
             cap = float(capacity_value)
-            M = cap * 1000
+            #M = cap * 1000  # Large constant for constraints
+            M = max(cap * 1.5, MAX_PREDICTED_DEMAND*1.5)  # Ensure M is large enough but not too large to avoid numerical issues 
 
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
