@@ -16,11 +16,11 @@ optim_model_vect = ['Model_1'] # Model_1, Model_2, Model_3
 ml_model_vect = ['ffnn'] # tree, rf, gbm, ffnn
 delta_vect = [5, 10, 20]
 days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
-num_simulations = 10 # 25 # 50 # 100
+num_simulations = 25 # 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 keep_validation_results = True # If True, keeps the validation results after execution
-reset_previous_output = False
-skip_previous_results = False
+reset_previous_output = False # If True, resets the final results file with all the previous results and starts from scratch
+skip_previous_results = False # If True, skips the experiments that have already been processed in the final results file
 restricted_service_providers = None # [2,4] # 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO # Do not update prices for these service providers
 
 # --- Paths ---
