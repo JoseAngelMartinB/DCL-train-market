@@ -57,24 +57,8 @@ print(f"Training set size: {X_train.shape[0]}")
 print(f"Validation set size: {X_val.shape[0]}")
 
 # --- Identify features to scale ---
-# Scale numerical features but not one-hot encoded categorical features
-categorical_cols = [col for col in X.columns if col.startswith('train_type_')]
-numerical_cols = [col for col in X.columns if col not in categorical_cols]
-
-scaled_feat = []
-if 'duration' in numerical_cols:
-    scaled_feat.append('duration')
-
-# Add competitor price and time distance features if they exist
-for i in range(-2, 3):
-    if i != 0:
-        time_col = f"time_distance_competitor_{i}"
-        price_col = f"price_competitor_{i}"
-        if time_col in numerical_cols:
-            scaled_feat.append(time_col)
-        if price_col in numerical_cols:
-            scaled_feat.append(price_col)
-
+# Scale ALL features (including categorical and trigonometric features)
+scaled_feat = list(X.columns)  # Scale all features
 print(f"Features to be scaled: {scaled_feat}")
 
 # --- Standardize features ---
