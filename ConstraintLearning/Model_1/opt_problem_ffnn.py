@@ -596,7 +596,7 @@ for day in DAYS:
                 
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
                 validation_filename = f"validation_ffnn_{day}_delta_{delta}_obj_{objective_str}.csv"
-                validation_filepath = os.path.join(results_dir, validation_filename)
+                validation_filepath = os.path.join(RESULTS_PATH, validation_filename)
                 
                 validation_df.to_csv(validation_filepath, index=False)
                 print(f"  Validation results saved to: {validation_filepath}")
