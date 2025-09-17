@@ -95,5 +95,5 @@ if __name__ == "__main__":
     # Join X_processed and y into a single DataFrame and save as CSV
     df_clean = X_processed.copy()
     df_clean["passengers"] = y
-    output_path = os.path.join(BASE_DIR, "preprocesed_data/cleaned_MAD-BCN_2025.csv")
+    output_path = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
     df_clean.to_csv(output_path, index=False)

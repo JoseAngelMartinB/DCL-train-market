@@ -14,7 +14,7 @@ from utils import *
 
 # --- Config ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/cleaned_MAD-BCN_2025.csv")
+DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_ffnn_model.pt")
 FIG_PATH = os.path.join(BASE_DIR, "figures/demand_ffnn_")
 TARGET_COL = "passengers"

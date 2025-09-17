@@ -110,7 +110,7 @@ layers = getattr(model, 'layers')
 
 # --- Load both DataFrames ---
 orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
-cleaned_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/cleaned_MAD-BCN_2025.csv')
+cleaned_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv')
 
 # Check if files exist
 if not os.path.exists(orig_csv_path):

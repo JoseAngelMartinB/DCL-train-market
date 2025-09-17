@@ -133,8 +133,8 @@ print(f"Total nodes across both models: {total_nodes}")
 
 # --- Load both DataFrames ---
 orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
-demand_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/cleaned_MAD-BCN_2025.csv')
-price_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/cleaned_price_MAD-BCN_2025.csv')
+demand_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv')
+price_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/price_RENFE_MAD-BCN_2025.csv')
 
 # Check if files exist
 for csv_path in [orig_csv_path, demand_csv_path, price_csv_path]:

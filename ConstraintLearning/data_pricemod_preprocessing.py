@@ -104,7 +104,7 @@ if __name__ == "__main__":
     
     # Input and output paths
     input_path = os.path.join(BASE_DIR, "../DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025_RENFE.csv")
-    output_path = os.path.join(BASE_DIR, "preprocesed_data/cleaned_price_MAD-BCN_2025.csv")
+    output_path = os.path.join(BASE_DIR, "preprocesed_data/price_RENFE_MAD-BCN_2025.csv")
     
     # Run preprocessing
     X_processed, y = preprocess_price_data(input_path, output_path)

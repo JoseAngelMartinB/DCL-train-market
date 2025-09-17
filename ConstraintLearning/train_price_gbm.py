@@ -16,7 +16,7 @@ from utils import smape_score
 # --- Config ---
 import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/cleaned_price_MAD-BCN_2025.csv")
+DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/price_RENFE_MAD-BCN_2025.csv")
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/price_gbm_model.pkl")
 FIG_PATH = os.path.join(BASE_DIR, "figures/price_gbm_")
 TARGET_COL = "price"
