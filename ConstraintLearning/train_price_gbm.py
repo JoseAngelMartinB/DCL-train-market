@@ -56,18 +56,14 @@ X_train, X_val, y_train, y_val = train_test_split(
 print(f"Training set size: {X_train.shape[0]}")
 print(f"Validation set size: {X_val.shape[0]}")
 
-# --- Identify features to scale ---
-# Scale ALL features (including categorical and trigonometric features)
-scaled_feat = list(X.columns)  # Scale all features
-print(f"Features to be scaled: {scaled_feat}")
-
 # --- Standardize features ---
 feat_scaler = StandardScaler()
-
-# Create copies for scaling
 X_train_scaled = X_train.copy()
 X_val_scaled = X_val.copy()
 
+# Scale ALL features (including categorical and trigonometric features)
+scaled_feat = list(X.columns)  # Scale all features
+print(f"Features to be scaled: {scaled_feat}")
 if scaled_feat:
     X_train_scaled[scaled_feat] = feat_scaler.fit_transform(X_train[scaled_feat])
     X_val_scaled[scaled_feat] = feat_scaler.transform(X_val[scaled_feat])
@@ -76,7 +72,7 @@ if scaled_feat:
 X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
 X_val_scaled = pd.DataFrame(X_val_scaled, columns=X_val.columns, index=X_val.index)
 
-# Save feature statistics
+# Save feature mean and std
 feature_means = feat_scaler.mean_ if scaled_feat else np.zeros(len(X.columns))
 feature_stds = feat_scaler.scale_ if scaled_feat else np.ones(len(X.columns))
 
