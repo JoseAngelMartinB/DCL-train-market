@@ -20,6 +20,7 @@ DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_gbm_model.pkl")
 FIG_PATH = os.path.join(BASE_DIR, "figures/demand_gbm_")
 TARGET_COL = "passengers"
+UNUSED_COLS = ['service_id', 'capacity']
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
 SHOWPLOTS = True  # Set to True to enable plots
@@ -31,7 +32,14 @@ print("Loading and preprocessing data...")
 # --- Load and preprocess data ---
 data = pd.read_csv(DATA_PATH)
 y = data[TARGET_COL]
-X = data.drop(columns=[TARGET_COL], axis=1)
+columns_to_drop = [TARGET_COL] + UNUSED_COLS
+missing_columns = [col for col in columns_to_drop if col not in data.columns]
+if missing_columns:
+    warnings.warn(
+        f"Columns not found and skipped during drop: {missing_columns}",
+        UserWarning,
+    )
+X = data.drop(columns=columns_to_drop, axis=1, inplace=False, errors="ignore")
 feature_mins = X.min().values
 feature_maxs = X.max().values
 

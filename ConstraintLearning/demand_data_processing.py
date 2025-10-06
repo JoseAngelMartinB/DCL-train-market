@@ -89,7 +89,7 @@ if __name__ == "__main__":
     ]
     X_processed = process_categorical_features(X_processed, cols_to_encode)
 
-    columns_to_drop = ["service_id", "capacity", "train_model", "year", "service_date"]
+    columns_to_drop = ["train_model", "year", "service_date"]
     X_processed = remove_unused_columns(X_processed, columns_to_drop)
 
     # Join X_processed and y into a single DataFrame and save as CSV

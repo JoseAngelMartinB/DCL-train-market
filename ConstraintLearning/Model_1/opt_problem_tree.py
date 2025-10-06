@@ -33,6 +33,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
 ML_MODEL_NAME = 'tree'
+DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
+UNUSED_COLS = ['service_id', 'capacity']
 SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
@@ -100,22 +102,17 @@ print(f"Loaded tree model with max_depth: {tree_model.max_depth}")
 print(f"Tree has {tree_model.tree_.node_count} nodes")
 
 # --- Load both DataFrames ---
-orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
-cleaned_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv')
+cleaned_csv_path = os.path.join(project_root, DEMAND_DATASET)
 
-# Check if files exist
-if not os.path.exists(orig_csv_path):
-    print(f"Original CSV file not found at: {orig_csv_path}")
-    print(f"Project root: {project_root}")
-    sys.exit(1)
-
+# Check if file exist
 if not os.path.exists(cleaned_csv_path):
     print(f"Cleaned CSV file not found at: {cleaned_csv_path}")
     print(f"Project root: {project_root}")
     sys.exit(1)
 
-orig_df = pd.read_csv(orig_csv_path)
 cleaned_df = pd.read_csv(cleaned_csv_path)
+
+feature_names = [col for col in cleaned_df.columns if col not in UNUSED_COLS + ['passengers']]
 
 # Extract date from service_id in the original DataFrame
 def extract_date(service_id):
@@ -125,8 +122,7 @@ def extract_date(service_id):
     # date_part: ['01', '01', '2025', '06.27']
     return f"{date_part[2]}-{date_part[1]}-{date_part[0]}"  # YYYY-MM-DD
 
-orig_df['date'] = orig_df['service_id'].apply(extract_date)
-cleaned_df['date'] = orig_df['date']
+cleaned_df['date'] = cleaned_df['service_id'].apply(extract_date)
 
 # --- Helper functions to encode decision tree in MILP ---
 def get_tree_structure(tree):
@@ -240,10 +236,8 @@ for day in DAYS:
         print(f"Total expected passengers for {day}: {total_passengers}")
         
         # Get day-specific data
-        day_context_matrix = cleaned_df[cleaned_df['date'] == day].drop(columns=['passengers', 'date'], errors='ignore').to_numpy()
-        day_cleaned_df = cleaned_df.drop(columns=['passengers', 'date'], errors='ignore')
-        
-        feature_names = list(day_cleaned_df.columns)
+        day_context_matrix = cleaned_df[cleaned_df['date'] == day].drop(columns=['passengers', 'date'] + UNUSED_COLS, errors='ignore').to_numpy()
+
         n_trains_context = day_context_matrix.shape[0]
         PRICE_COMP_M2_IDX = feature_names.index('price_competitor_-2')
         PRICE_COMP_M1_IDX = feature_names.index('price_competitor_-1')
@@ -251,8 +245,8 @@ for day in DAYS:
         PRICE_COMP_P2_IDX = feature_names.index('price_competitor_2')
         price_idx = feature_names.index('price')
         
-        # Extract 'capacity' from original data
-        capacity_values = orig_df['capacity'][orig_df['date'] == day].to_numpy()
+        # Extract 'capacity' values
+        capacity_values = cleaned_df['capacity'][cleaned_df['date'] == day].to_numpy()
         print("Capacity values from original data:", capacity_values[:5], "...")  # Show first 5
 
         # --- Set up Gurobi model for all trains in the day ---
@@ -426,7 +420,7 @@ for day in DAYS:
                     objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
                 
                 # Get the service_ids for the selected day
-                day_service_ids = orig_df[orig_df['date'] == day]['service_id'].tolist()
+                day_service_ids = cleaned_df[cleaned_df['date'] == day]['service_id'].tolist()
                 
                 # Prepare data for CSV
                 results_data = []

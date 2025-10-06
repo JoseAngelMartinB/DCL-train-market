@@ -18,6 +18,7 @@ DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_ffnn_model.pt")
 FIG_PATH = os.path.join(BASE_DIR, "figures/demand_ffnn_")
 TARGET_COL = "passengers"
+UNUSED_COLS = ['service_id', 'capacity']
 BATCH_SIZE = 256
 N_EPOCHS = 1000
 LEARNING_RATE = 1e-3
@@ -33,7 +34,14 @@ PRICESENS = True  # Set to False to disable sensitivity analysis
 # --- Load and preprocess data ---
 data = pd.read_csv(DATA_PATH)
 y = data[TARGET_COL]
-X = data.drop(columns=[TARGET_COL], axis=1)
+columns_to_drop = [TARGET_COL] + UNUSED_COLS
+missing_columns = [col for col in columns_to_drop if col not in data.columns]
+if missing_columns:
+    warnings.warn(
+        f"Columns not found and skipped during drop: {missing_columns}",
+        UserWarning,
+    )
+X = data.drop(columns=columns_to_drop, axis=1, inplace=False, errors="ignore")
 feature_mins = X.min().values
 feature_maxs = X.max().values
 
