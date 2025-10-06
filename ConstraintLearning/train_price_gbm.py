@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import warnings
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
@@ -20,6 +21,7 @@ DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/price_RENFE_MAD-BCN_2025.cs
 SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/price_gbm_model.pkl")
 FIG_PATH = os.path.join(BASE_DIR, "figures/price_gbm_")
 TARGET_COL = "price"
+UNUSED_COLS = ['service_id']
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
 SHOWPLOTS = True  # Set to True to enable plots
@@ -38,7 +40,14 @@ print(f"Columns: {list(data.columns)}")
 
 # Separate features and target
 y = data[TARGET_COL]
-X = data.drop(columns=[TARGET_COL], axis=1)
+columns_to_drop = [TARGET_COL] + UNUSED_COLS
+missing_columns = [col for col in columns_to_drop if col not in data.columns]
+if missing_columns:
+    warnings.warn(
+        f"Columns not found and skipped during drop: {missing_columns}",
+        UserWarning,
+    )
+X = data.drop(columns=columns_to_drop, axis=1, inplace=False, errors="ignore")
 
 # Store original feature ranges for constraints
 feature_mins = X.min().values

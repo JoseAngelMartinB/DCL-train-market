@@ -61,7 +61,7 @@ def preprocess_price_data(input_path, output_path):
     # --- Remove unused columns ---
     print("Removing unused columns...")
     columns_to_drop = [
-        'service_id', 'capacity', 'train_model', 'year', 'departure_time', 'passengers'
+        'capacity', 'train_model', 'year', 'departure_time', 'passengers'
     ] + [
         f"duration_competitor_{i}" for i in range(-2, 3) if i != 0
     ] + [
