@@ -40,6 +40,7 @@ RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
+MIPGap = 0.01  # Set optimality gap
 TIME_LIMIT = 1 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
@@ -253,6 +254,13 @@ for day in DAYS:
         opt_m = gp.Model("TreePricingOptimization")
         opt_m.setParam('OutputFlag', 1)
         opt_m.setParam('NodefileStart', 12.0)  # Start writing node file after 12 GB
+        opt_m.setParam('MIPGap', MIPGap)  # Set a small MIP gap for faster convergence
+        opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
+        opt_m.setParam('TimeLimit', TIME_LIMIT) # Set optimization time limit
+
+        # Add infeasibility debugging
+        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
+
 
         # --- Create all price variables first ---
         price_vars = []
@@ -336,9 +344,7 @@ for day in DAYS:
 
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
-            bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")
-            bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
-            
+            bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")            
             opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
             opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name=f"output_var_nonneg_le_output_plus_M_{train_idx}")
@@ -348,6 +354,7 @@ for day in DAYS:
             
             # ActualDemand logic with capacity constraints
             ActualDemand = opt_m.addVar(lb=0, ub=cap, name=f"ActualDemand_{train_idx}")
+            bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
             opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_le_output_{train_idx}")
             opt_m.addConstr(ActualDemand >= s_aux - M * (1 - bin2_aux), name=f"ActualDemand_ge_output_minus_M_{train_idx}")
             opt_m.addConstr(ActualDemand >= cap - M * bin2_aux, name=f"ActualDemand_ge_cap_minus_M_{train_idx}")
@@ -373,14 +380,8 @@ for day in DAYS:
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
 
-        # --- Optimization parameters ---
-        opt_m.setParam('MIPGap', 0.01)  # Set a small MIP gap for faster convergence
-        opt_m.setParam('MIPFocus', 3)  # Focus on improving the best bound
-        opt_m.setParam('TimeLimit', TIME_LIMIT) # Set optimization time limit
 
-        # Add infeasibility debugging
-        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
-
+        # --- Optimize the model using a separate thread for RAM monitoring ---
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
 
         monitoring_flag = True
@@ -408,6 +409,7 @@ for day in DAYS:
             print("Time limit reached.")
         else:
             print(f"Optimization failed with status: {opt_m.status}")
+        
 
         # --- Save results to CSV ---
         if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:

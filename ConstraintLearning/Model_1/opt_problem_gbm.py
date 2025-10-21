@@ -40,6 +40,7 @@ RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
+MIPGap = 0.001  # Optimality gap for optimization
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
@@ -324,6 +325,11 @@ for day in DAYS:
         #opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('Heuristics', 0.1)  # Spend 10% time on heuristics
         opt_m.setParam('NodefileStart', 12.0)  # Start writing node file after 12 GB
+        opt_m.setParam('MIPGap', MIPGap)  # Set optimality gap
+        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set optimization time limit
+        
+        # Add infeasibility debugging
+        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
 
         # --- Create all price variables first (batch creation) ---
         price_vars = []
@@ -437,6 +443,7 @@ for day in DAYS:
             # --- Add Gradient Boosting Machine constraints and get output ---
             output_var = add_gbm_constraints(opt_m, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction)
 
+
             # --- ActualDemand logic  ---
             cap = float(capacity_value)
             M = 2000
@@ -444,15 +451,16 @@ for day in DAYS:
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
             bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")
-            bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
             opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
             opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name=f"output_var_nonneg_le_output_plus_M_{train_idx}")
             opt_m.addConstr(s_aux <= M * bin1_aux, name=f"output_var_nonneg_le_M_{train_idx}")
             opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
             opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
+
             # ActualDemand logic with strict enforcement
             ActualDemand = opt_m.addVar(lb=0, ub=cap, name=f"ActualDemand_{train_idx}")
+            bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg2_{train_idx}")
             opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_ge_output_{train_idx}")
             opt_m.addConstr(ActualDemand >= s_aux - M * (1 - bin2_aux), name=f"ActualDemand_le_output_{train_idx}")
             opt_m.addConstr(ActualDemand >= cap - M * bin2_aux, name=f"ActualDemand_le_cap_minus_M_{train_idx}")
@@ -478,14 +486,8 @@ for day in DAYS:
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
 
-        # --- Optimization parameters for large Gradient Boosting MILP ---
-        opt_m.setParam('MIPGap', 0.001)  # Allow 0.5% optimality gap for faster solutions
-        #opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
-        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set optimization time limit
-        
-        # Add infeasibility debugging
-        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
 
+        # --- Optimize the model using a separate thread for RAM monitoring ---
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
 
         monitoring_flag = True
@@ -511,6 +513,7 @@ for day in DAYS:
                 if v.IISUB:
                     print(f"  Variable UB: {v.varName} <= {v.ub}")
             continue  # Skip to next scenario if infeasible
+
 
         # --- Print solution ---
         if opt_m.status == gp.GRB.OPTIMAL:

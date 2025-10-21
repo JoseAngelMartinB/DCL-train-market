@@ -40,6 +40,7 @@ RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
+MIPGap = 0.01  # Optimality gap for optimization
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
@@ -316,6 +317,11 @@ for day in DAYS:
         opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('Heuristics', 0.1)  # Spend 10% time on heuristics
         opt_m.setParam('NodefileStart', 12.0)  # Start writing node file after 12 GB
+        opt_m.setParam('MIPGap', MIPGap)  # Set optimality gap
+        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set optimization time limit
+
+        # Add infeasibility debugging
+        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
 
         # --- Create all price variables first (batch creation) ---
         price_vars = []
@@ -400,6 +406,7 @@ for day in DAYS:
             # --- ActualDemand logic (simplified since RF predictions are positive) ---
             cap = float(capacity_value)
             M = 1000
+
             # Since RF predictions are always positive, s_aux is just output_var + small epsilon
             s_aux = opt_m.addVar(lb=0, name=f"demand_positive_{train_idx}")
             opt_m.addConstr(s_aux == output_var + 1e-6, name=f"demand_positive_constraint_{train_idx}")
@@ -439,14 +446,8 @@ for day in DAYS:
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
 
-        # --- Optimization parameters for large Random Forest MILP ---
-        opt_m.setParam('MIPGap', 0.01)  # Allow 1% optimality gap for faster solutions
-        opt_m.setParam('MIPFocus', 3)   # Focus on finding good feasible solutions
-        opt_m.setParam('TimeLimit', TIME_LIMIT)  # Set optimization time limit
 
-        # Add infeasibility debugging
-        #opt_m.setParam('DualReductions', 0)  # Disable dual reductions for better debugging
-
+        # --- Optimize the model using a separate thread for RAM monitoring ---
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
 
         monitoring_flag = True
@@ -472,6 +473,7 @@ for day in DAYS:
                 if v.IISUB:
                     print(f"  Variable UB: {v.varName} <= {v.ub}")
             continue  # Skip to next scenario if infeasible
+
 
         # --- Print solution ---
         if opt_m.status == gp.GRB.OPTIMAL:
