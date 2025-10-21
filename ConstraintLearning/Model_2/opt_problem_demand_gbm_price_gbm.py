@@ -32,20 +32,28 @@ def monitor_ram(process, interval=0.5):
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 # --- Config ---
-ML_MODEL_NAME = 'demand_gbm_price_gbm'
+ML_MODEL_NAME = 'demand_gbm-price_gbm'
+DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
+DEMAND_UNUSED_COLS = ['service_id', 'capacity']
+PRICE_DATASET = 'ConstraintLearning/preprocesed_data/price_RENFE_MAD-BCN_2025.csv'
+PRICE_UNUSED_COLS = ['service_id']
 DEMAND_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_gbm_model.pkl")
 PRICE_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/price_gbm_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_2/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_2/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
-TIME_LIMIT = 6 * 3600  # Extended time limit for more complex optimization
+COMPETITORS_PRICES_INTERVAL = [10, 120]
+MIPGap = 0.002  # Optimality gap for optimization
+TIME_LIMIT = 6 * 3600  # Time limit for optimization
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with smaller set for testing the new model)
-DELTA_VALUES = [5, 10]  # Start with fewer deltas for testing
+DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
 DAYS = [
     '2025-03-12',  # Weekday low demand day
+    '2025-03-22',  # Weekend low demand day
+    '2025-08-13',  # Weekday high demand day
     '2025-08-23'   # Weekend high demand day
 ]
 
@@ -53,6 +61,12 @@ DAYS = [
 for model_path in [DEMAND_MODEL_PATH, PRICE_MODEL_PATH]:
     if not os.path.exists(model_path):
         print(f"Model file not found at: {model_path}")
+        print("Available files in the directory:")
+        model_dir = os.path.dirname(model_path)
+        if os.path.exists(model_dir):
+            print(os.listdir(model_dir))
+        else:
+            print(f"Directory {model_dir} does not exist")
         sys.exit(1)
 
 # Load previous optimization results if available
@@ -76,6 +90,7 @@ if CLEAR_PREVIOUS_RESULTS and os.path.exists(RESULTS_PATH):
             file_path = os.path.join(RESULTS_PATH, file)
             os.remove(file_path)
     optim_results_df = optim_results_df[optim_results_df['ml_model'] != ML_MODEL_NAME]
+
 
 # --- Load the Demand GBM model ---
 print("Loading Demand GBM model...")
@@ -101,6 +116,7 @@ demand_total_nodes = sum(tree[0].tree_.node_count for tree in demand_trees)
 print(f"Demand model - Learning rate: {demand_learning_rate}, Initial prediction: {demand_initial_prediction}")
 print(f"Demand model - Total nodes: {demand_total_nodes}")
 
+
 # --- Load the Price GBM model ---
 print("Loading Price GBM model...")
 price_model_data = joblib.load(PRICE_MODEL_PATH)
@@ -113,7 +129,7 @@ price_feature_mins = price_model_data['feature_mins']
 price_feature_maxs = price_model_data['feature_maxs']
 price_target_mean = price_model_data['target_mean']
 price_target_std = price_model_data['target_std']
-price_scaled_features = price_model_data['scaled_features']
+price_scaled_features_names = price_model_data['scaled_features']
 
 print(f"Loaded Price GBM model with {price_gbm_model.n_estimators} trees")
 
@@ -125,40 +141,37 @@ price_total_nodes = sum(tree[0].tree_.node_count for tree in price_trees)
 
 print(f"Price model - Learning rate: {price_learning_rate}, Initial prediction: {price_initial_prediction}")
 print(f"Price model - Total nodes: {price_total_nodes}")
-print(f"Price model - Scaled features: {price_scaled_features}")
+print(f"Price model - Scaled features: {price_scaled_features_names}")
 
 # Total complexity
 total_nodes = demand_total_nodes + price_total_nodes
 print(f"Total nodes across both models: {total_nodes}")
 
-# --- Load both DataFrames ---
-orig_csv_path = os.path.join(project_root, 'DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv')
-demand_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv')
-price_csv_path = os.path.join(project_root, 'ConstraintLearning/preprocesed_data/price_RENFE_MAD-BCN_2025.csv')
 
+# --- Load both DataFrames ---
 # Check if files exist
-for csv_path in [orig_csv_path, demand_csv_path, price_csv_path]:
+for csv_path in [DEMAND_DATASET, PRICE_DATASET]:
     if not os.path.exists(csv_path):
         print(f"CSV file not found at: {csv_path}")
         sys.exit(1)
 
-orig_df = pd.read_csv(orig_csv_path)
-demand_df = pd.read_csv(demand_csv_path)
-price_df = pd.read_csv(price_csv_path)
+demand_df = pd.read_csv(DEMAND_DATASET)
+price_df = pd.read_csv(PRICE_DATASET)
 
 # Extract date from service_id in the original DataFrame
 def extract_date(service_id):
+    # Example: '00003_01-01-2025-06.27'
     parts = service_id.split('_')
     date_part = parts[1].split('-')
+    # date_part: ['01', '01', '2025', '06.27']
     return f"{date_part[2]}-{date_part[1]}-{date_part[0]}"  # YYYY-MM-DD
 
-orig_df['date'] = orig_df['service_id'].apply(extract_date)
-demand_df['date'] = orig_df['date']
-price_df['date'] = orig_df['date']
+demand_df['date'] = demand_df['service_id'].apply(extract_date)
+price_df['date'] = price_df['service_id'].apply(extract_date)
 
 # Get feature names for both models
-demand_features = [col for col in demand_df.columns if col not in ['passengers', 'date']]
-price_features = [col for col in price_df.columns if col not in ['price', 'date']]
+demand_features = [col for col in demand_df.columns if col not in DEMAND_UNUSED_COLS + ['passengers', 'date']]
+price_features = [col for col in price_df.columns if col not in PRICE_UNUSED_COLS + ['price', 'date']]
 
 print(f"Demand model features ({len(demand_features)}): {demand_features[:5]}...")
 print(f"Price model features ({len(price_features)}): {price_features[:5]}...")
@@ -297,16 +310,16 @@ def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, lea
     
     return gbm_output_original
 
-def create_scaled_feature_for_price_model(opt_model, feature_val, feature_idx, price_feature_means, price_feature_stds, train_idx, feature_name):
+def create_scaled_feature_for_price_model(opt_model, feature_val, feature_idx, price_feature_means, price_feature_stds, idx, feature_name):
     """Create a scaled feature for the price model"""
     scaled_feature = opt_model.addVar(
         lb=-gp.GRB.INFINITY,
-        name=f"price_scaled_{feature_name}_train_{train_idx}"
+        name=f"price_scaled_{feature_name}_train_{idx}"
     )
     
     opt_model.addConstr(
         scaled_feature == (feature_val - price_feature_means[feature_idx]) / price_feature_stds[feature_idx],
-        name=f"price_scale_{feature_name}_train_{train_idx}"
+        name=f"price_scale_{feature_name}_train_{idx}"
     )
     
     return scaled_feature
@@ -325,15 +338,18 @@ for day in DAYS:
         # Prepare data for this day
         day_demand_df = demand_df[demand_df['date'] == day].copy()
         day_price_df = price_df[price_df['date'] == day].copy()
-        day_orig_df = orig_df[orig_df['date'] == day].copy()
         
         total_passengers = day_demand_df['passengers'].sum()
         print(f"Total expected passengers for {day}: {total_passengers}")
         
         # Get day-specific data matrices
-        demand_context_matrix = day_demand_df.drop(columns=['passengers', 'date'], errors='ignore').to_numpy()
-        price_context_matrix = day_price_df.drop(columns=['price', 'date'], errors='ignore').to_numpy()
+        demand_context_matrix = day_demand_df.drop(columns=['passengers', 'date'] + DEMAND_UNUSED_COLS, errors='ignore').to_numpy()
+        price_context_matrix = day_price_df.drop(columns=['price', 'date'] + PRICE_UNUSED_COLS, errors='ignore').to_numpy()
         
+        # Get service IDs to match between datasets
+        day_demand_service_ids = day_demand_df['service_id'].to_numpy()
+        day_price_service_ids = day_price_df['service_id'].to_numpy()
+
         n_trains_context = demand_context_matrix.shape[0]
         
         # Get feature indices for demand model
@@ -352,9 +368,9 @@ for day in DAYS:
             1: price_features.index('price_competitor_1'),
             2: price_features.index('price_competitor_2')
         }
-        
+
         # Extract capacity values from original data
-        capacity_values = day_orig_df['capacity'].to_numpy()
+        capacity_values = day_demand_df['capacity'].to_numpy()
         print(f"Processing {n_trains_context} trains for {day}")
 
         # --- Set up Gurobi model ---
@@ -363,7 +379,7 @@ for day in DAYS:
         # Optimize Gurobi parameters for very large MILPs
         opt_m.setParam('OutputFlag', 1)
         opt_m.setParam('Threads', 0)  # Use all available cores
-        opt_m.setParam('MIPGap', 0.002)  # Allow 0.2% optimality gap
+        opt_m.setParam('MIPGap', MIPGap)  # Set optimality gap
         opt_m.setParam('Heuristics', 0.1)  # 10% time on heuristics
         opt_m.setParam('NodefileStart', 16.0)  # Start writing node file after 16 GB
         opt_m.setParam('TimeLimit', TIME_LIMIT)
@@ -371,13 +387,14 @@ for day in DAYS:
         # --- Create RENFE price variables ---
         renfe_price_vars = []
         renfe_price_bounds = []
-        
+
         for train_idx in range(n_trains_context):
             demand_context = demand_context_matrix[train_idx]
             train_type_AVE = demand_context[demand_features.index('train_type_AVE')]
             train_type_AVLO = demand_context[demand_features.index('train_type_AVLO')]
             
             if train_type_AVE == 1 or train_type_AVLO == 1:
+                # For RENFE trains, price is a variable that will be optimized
                 original_price = demand_context[demand_price_idx]
                 lb = max(original_price - delta, RENFE_PRICES_INTERVAL[0])
                 ub = min(original_price + delta, RENFE_PRICES_INTERVAL[1])
@@ -397,16 +414,17 @@ for day in DAYS:
 
         # --- Create competitor price variables (IRYO, OUIGO) ---
         competitor_price_vars = []
-        
+
         for train_idx in range(n_trains_context):
             demand_context = demand_context_matrix[train_idx]
             train_type_IRYO = demand_context[demand_features.index('train_type_IRYO')]
             train_type_OUIGO = demand_context[demand_features.index('train_type_OUIGO')]
             
             if train_type_IRYO == 1 or train_type_OUIGO == 1:
-                # This will be determined by the price GBM model
+                # The competitor price will be determined by the Price GBM model as a response to the RENFE prices
                 competitor_price_var = opt_m.addVar(
-                    lb=10, ub=120,  # Reasonable bounds for competitor prices
+                    lb=COMPETITORS_PRICES_INTERVAL[0],
+                    ub=COMPETITORS_PRICES_INTERVAL[1],
                     name=f"competitor_price_{train_idx}"
                 )
                 competitor_price_vars.append(competitor_price_var)
@@ -416,16 +434,16 @@ for day in DAYS:
 
         opt_m.update()
 
-        # --- Now embed both GBM models for each train ---
+        # --- Now embed, for each train, the Price GBM (if competitor) and Demand GBM ---
         demand_output_vars = []
         s_aux_vars = []
         ActualDemands = []
 
         for train_idx in range(n_trains_context):
-            print(f"Processing train {train_idx}...")
-            
+            service_id = day_demand_service_ids[train_idx]
+            print(f"Processing train {train_idx} (Service ID: {service_id})...")
+
             demand_context = demand_context_matrix[train_idx]
-            price_context = price_context_matrix[train_idx]
             capacity_value = capacity_values[train_idx]
             
             # Determine train types
@@ -436,10 +454,19 @@ for day in DAYS:
             
             print(f"  Train {train_idx}: AVE={is_ave}, AVLO={is_avlo}, IRYO={is_iryo}, OUIGO={is_ouigo}")
 
+
             # --- 1. First, determine competitor prices using Price GBM for IRYO/OUIGO trains ---
             if is_iryo or is_ouigo:
-                print(f"    Setting up Price GBM for competitor train {train_idx}")
-                
+                print(f"    Setting up Price GBM for train {train_idx}")
+                # Find corresponding index in price data to match the service_id in both datasets
+                day_price_idx = np.where(day_price_service_ids == service_id)[0]
+                if len(day_price_idx) == 0:
+                    print(f"    Warning: No matching price data found for service_id {service_id}. Skipping this train.")
+                    continue
+                # print(f"    Setting up Price GBM for competitor train {train_idx} (at price index {day_price_idx[0]})") # Uncomment for debugging
+                day_price_idx = day_price_idx[0]
+                price_context = price_context_matrix[day_price_idx]
+
                 # Prepare scaled features for Price GBM
                 price_scaled_features = {}
                 
@@ -447,9 +474,21 @@ for day in DAYS:
                     if feature_name.startswith('price_competitor_'):
                         # Handle competitor prices for the price model
                         offset = int(feature_name.split('_')[-1])
-                        competitor_train_idx = train_idx + offset
-                        
-                        if 0 <= competitor_train_idx < n_trains_context:
+
+                        # Find the competitor train index based on offset and ensure it's a RENFE train
+                        competitor_train_idx = None
+                        step = 1 if offset > 0 else -1
+                        count = 0
+                        for j in range(train_idx + step, n_trains_context if step > 0 else -1, step):
+                            d_context = demand_context_matrix[j]
+                            if d_context[demand_features.index('train_type_AVE')] == 1 or d_context[demand_features.index('train_type_AVLO')] == 1:
+                                count += step
+                                if count == offset:
+                                    competitor_train_idx = j
+                                    break
+
+                        if competitor_train_idx is not None and 0 <= competitor_train_idx < n_trains_context:
+                            # print(f"      Setting price feature '{feature_name}' for train {train_idx} using competitor train index {competitor_train_idx}") # Uncomment for debugging
                             # Check if this competitor is RENFE (AVE/AVLO)
                             comp_demand_context = demand_context_matrix[competitor_train_idx]
                             comp_is_ave = comp_demand_context[demand_features.index('train_type_AVE')] == 1
@@ -466,25 +505,26 @@ for day in DAYS:
                                     feature_val = comp_demand_context[demand_price_idx]  # Fixed original price
                         else:
                             # Out of bounds, use original context value
+                            print(f"      Out of bounds for feature '{feature_name}' at train {train_idx}, using original context value.")
                             feature_val = price_context[i]
                             
                         # Scale the feature
-                        if feature_name in price_scaled_features:
+                        if feature_name in price_scaled_features_names:
                             price_scaled_features[i] = create_scaled_feature_for_price_model(
                                 opt_m, feature_val, i, price_feature_means, price_feature_stds, 
-                                train_idx, feature_name
+                                day_price_idx, feature_name
                             )
                         else:
                             price_scaled_features[i] = (feature_val - price_feature_means[i]) / price_feature_stds[i]
                     else:
                         # Regular feature, scale it normally
-                        if feature_name in price_scaled_features:
+                        if feature_name in price_scaled_features_names:
                             feature_val = price_context[i]
                             price_scaled_features[i] = create_scaled_feature_for_price_model(
                                 opt_m, feature_val, i, price_feature_means, price_feature_stds,
-                                train_idx, feature_name
+                                day_price_idx, feature_name
                             )
-                        else:
+                        else: # TODO: @antonioalcantaramata Check if this line makes sense. Shouldn't it be: price_scaled_features[i] = price_context[i]?
                             price_scaled_features[i] = (price_context[i] - price_feature_means[i]) / price_feature_stds[i]
                 
                 # Add Price GBM constraints and get predicted price
@@ -499,6 +539,7 @@ for day in DAYS:
                     competitor_price_vars[train_idx] == predicted_price,
                     name=f"competitor_price_equals_prediction_{train_idx}"
                 )
+
 
             # --- 2. Now set up Demand GBM for all trains ---
             print(f"    Setting up Demand GBM for train {train_idx}")
@@ -553,14 +594,14 @@ for day in DAYS:
                 "demand", demand_target_scaler
             )
 
-            # --- ActualDemand logic (same as before) ---
+
+            # --- 3. Add ActualDemand logic with capacity constraints ---
             cap = float(capacity_value)
-            M = 2000
+            M = 2000 # Big M for demand and capacity constraints
 
             # Handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"demand_nonneg_{train_idx}")
             bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_demand_nonneg1_{train_idx}")
-            
             opt_m.addConstr(s_aux >= 0, name=f"demand_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= demand_output_var, name=f"demand_nonneg_ge_output_{train_idx}")
             opt_m.addConstr(s_aux <= demand_output_var + M * (1 - bin1_aux), name=f"demand_nonneg_le_output_plus_M_{train_idx}")
@@ -571,7 +612,6 @@ for day in DAYS:
             # ActualDemand with capacity constraint
             ActualDemand = opt_m.addVar(lb=0, ub=cap, name=f"ActualDemand_{train_idx}")
             bin2_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_demand_cap_{train_idx}")
-            
             opt_m.addConstr(ActualDemand <= s_aux, name=f"ActualDemand_le_demand_{train_idx}")
             opt_m.addConstr(ActualDemand >= s_aux - M * (1 - bin2_aux), name=f"ActualDemand_ge_demand_{train_idx}")
             opt_m.addConstr(ActualDemand >= cap - M * bin2_aux, name=f"ActualDemand_le_cap_{train_idx}")
@@ -581,6 +621,7 @@ for day in DAYS:
             ActualDemands.append(ActualDemand)
             
             opt_m.update()
+
 
         # --- Add total demand constraints ---
         opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.6 * total_passengers, name="min_total_demand")
@@ -599,6 +640,8 @@ for day in DAYS:
         opt_m.setObjective(total_revenue, gp.GRB.MAXIMIZE)
         opt_m.update()
 
+
+        # --- Optimize the model using a separate thread for RAM monitoring ---
         print(f"Starting optimization with {opt_m.NumVars} variables and {opt_m.NumConstrs} constraints...")
         print(f"Including {opt_m.NumBinVars} binary variables...")
 
@@ -625,6 +668,7 @@ for day in DAYS:
                         print("  ... (more IIS constraints)")
                         break
             continue
+
 
         # --- Print solution ---
         if opt_m.status == gp.GRB.OPTIMAL:
@@ -666,7 +710,7 @@ for day in DAYS:
                     objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
                 
                 # Get service_ids for the selected day
-                day_service_ids = day_orig_df['service_id'].tolist()
+                day_service_ids = day_demand_df['service_id'].tolist()
                 
                 # Prepare data for CSV
                 results_data = []
