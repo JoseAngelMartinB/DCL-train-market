@@ -281,6 +281,7 @@ model_data = {
     'model': best_model,
     'feature_scaler': feat_scaler,
     'target_scaler': target_scaler,
+    'scaled_features': scaled_feat,
     'feature_means': feature_means,
     'feature_stds': feature_stds,
     'feature_mins': feature_mins,
@@ -288,7 +289,6 @@ model_data = {
     'target_mean': target_mean,
     'target_std': target_std,
     'best_params': final_best_params,
-    'scaled_features': scaled_feat,
     'efficiency_analysis': {
         'nest_results': nest_results,
         'best_efficiency_n': best_efficiency_n,

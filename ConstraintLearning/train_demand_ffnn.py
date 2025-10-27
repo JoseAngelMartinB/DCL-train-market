@@ -180,6 +180,7 @@ for epoch in range(N_EPOCHS):
         torch.save(
             {
                 "model_state_dict": model.state_dict(),
+                "scaled_features": scaled_feat,
                 "feature_means": feature_means,
                 "feature_stds": feature_stds,
                 "feature_mins": feature_mins,
@@ -204,6 +205,12 @@ for epoch in range(N_EPOCHS):
 # --- Load best model before evaluation ---
 checkpoint = torch.load(SAVED_MODEL_PATH, weights_only=False)
 model.load_state_dict(checkpoint["model_state_dict"])
+# Check if scaled features match
+scaled_feat_checkpoint = checkpoint["scaled_features"]
+if set(scaled_feat_checkpoint) != set(scaled_feat):
+    raise ValueError(
+        f"Scaled features in checkpoint {scaled_feat_checkpoint} do not match current scaled features {scaled_feat}."
+    )
 feature_means = checkpoint["feature_means"]
 feature_stds = checkpoint["feature_stds"]
 feature_mins = checkpoint["feature_mins"]

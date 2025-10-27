@@ -506,26 +506,19 @@ for day in DAYS:
                         else:
                             # Out of bounds, use original context value
                             print(f"      Out of bounds for feature '{feature_name}' at train {train_idx}, using original context value.")
-                            feature_val = price_context[i]
-                            
-                        # Scale the feature
-                        if feature_name in price_scaled_features_names:
-                            price_scaled_features[i] = create_scaled_feature_for_price_model(
-                                opt_m, feature_val, i, price_feature_means, price_feature_stds, 
-                                day_price_idx, feature_name
-                            )
-                        else:
-                            price_scaled_features[i] = (feature_val - price_feature_means[i]) / price_feature_stds[i]
+                            feature_val = price_context[i]      
                     else:
-                        # Regular feature, scale it normally
-                        if feature_name in price_scaled_features_names:
-                            feature_val = price_context[i]
-                            price_scaled_features[i] = create_scaled_feature_for_price_model(
-                                opt_m, feature_val, i, price_feature_means, price_feature_stds,
-                                day_price_idx, feature_name
-                            )
-                        else: # TODO: @antonioalcantaramata Check if this line makes sense. Shouldn't it be: price_scaled_features[i] = price_context[i]?
-                            price_scaled_features[i] = (price_context[i] - price_feature_means[i]) / price_feature_stds[i]
+                        # Regular feature
+                        feature_val = price_context[i]
+                            
+                    # Scale the feature
+                    if feature_name in price_scaled_features_names:
+                        price_scaled_features[i] = create_scaled_feature_for_price_model(
+                            opt_m, feature_val, i, price_feature_means, price_feature_stds, 
+                            day_price_idx, feature_name
+                        )
+                    else:
+                        price_scaled_features[i] = feature_val
                 
                 # Add Price GBM constraints and get predicted price
                 predicted_price = add_gbm_constraints(

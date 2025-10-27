@@ -274,6 +274,7 @@ model_data = {
     'model': best_model,
     'feature_scaler': feat_scaler,
     'target_scaler': target_scaler,
+    'scaled_features': scaled_feat,
     'feature_means': feature_means,
     'feature_stds': feature_stds,
     'feature_mins': feature_mins,
