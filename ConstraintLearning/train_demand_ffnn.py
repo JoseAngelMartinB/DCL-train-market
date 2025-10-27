@@ -64,10 +64,6 @@ if scaled_feat:
     X_train_scaled[scaled_feat] = feat_scaler.fit_transform(X_train[scaled_feat])
     X_val_scaled[scaled_feat] = feat_scaler.transform(X_val[scaled_feat])
 
-# Convert to DataFrame to maintain column names
-X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
-X_val_scaled = pd.DataFrame(X_val_scaled, columns=X_val.columns, index=X_val.index)
-
 # Save feature mean and std
 feature_means = feat_scaler.mean_ if scaled_feat else np.zeros(len(X.columns))
 feature_stds = feat_scaler.scale_ if scaled_feat else np.ones(len(X.columns))
@@ -77,8 +73,8 @@ print("Features standardized.")
 
 # --- Standardize target ---
 target_scaler = StandardScaler()
-y_train = target_scaler.fit_transform(y_train.values.reshape(-1, 1))
-y_val = target_scaler.transform(y_val.values.reshape(-1, 1))
+y_train_scaled = target_scaler.fit_transform(y_train.values.reshape(-1, 1))
+y_val_scaled = target_scaler.transform(y_val.values.reshape(-1, 1))
 
 # Save target mean and std
 target_mean = target_scaler.mean_[0]
@@ -86,10 +82,10 @@ target_std = target_scaler.scale_[0]
 
 
 # --- Torch tensors ---
-X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
-X_val_tensor = torch.tensor(X_val.values, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val, dtype=torch.float32)
+X_train_tensor = torch.tensor(X_train_scaled.values, dtype=torch.float32)
+y_train_tensor = torch.tensor(y_train_scaled, dtype=torch.float32)
+X_val_tensor = torch.tensor(X_val_scaled.values, dtype=torch.float32)
+y_val_tensor = torch.tensor(y_val_scaled, dtype=torch.float32)
 
 train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
 val_dataset = torch.utils.data.TensorDataset(X_val_tensor, y_val_tensor)
@@ -107,7 +103,7 @@ def init_weights(m):
 
 
 # --- Model ---
-input_size = X_train.shape[1]
+input_size = X_train_scaled.shape[1]
 output_size = 1
 model = FeedForwardNN(input_size, output_size, HIDDEN_LAYERS, DROPOUT)
 model.apply(init_weights)
@@ -358,8 +354,8 @@ if SHOWPLOTS:
     print("\nPermutation Feature Importance (by drop in R²):")
     base_r2 = r2_score(y_true, y_pred)
     importances = []
-    for col in X_val.columns:
-        X_val_permuted = X_val.copy()
+    for col in X_val_scaled.columns:
+        X_val_permuted = X_val_scaled.copy()
         X_val_permuted[col] = np.random.permutation(X_val_permuted[col].values)
         X_val_tensor_perm = torch.tensor(X_val_permuted.values, dtype=torch.float32)
         with torch.no_grad():
@@ -371,7 +367,7 @@ if SHOWPLOTS:
     # Plot feature importances
     sorted_idx = np.argsort(importances)[::-1]
     plt.figure(figsize=(10, 6))
-    plt.bar(np.array(X_val.columns)[sorted_idx], np.array(importances)[sorted_idx])
+    plt.bar(np.array(X_val_scaled.columns)[sorted_idx], np.array(importances)[sorted_idx])
     plt.xticks(rotation=90)
     plt.ylabel("Drop in R² when permuted")
     plt.title("Permutation Feature Importance")
@@ -382,9 +378,9 @@ if SHOWPLOTS:
 # --- Partial Dependence Plot for Price ---
 if PRICESENS:
     n_baselines = 100  # Number of random baseline samples
-    price_idx = list(X_val.columns).index("price")
+    price_idx = list(X_val_scaled.columns).index("price")
     prices = np.linspace(
-        X_val["price"].min(),
+        X_val_scaled["price"].min(),
         (90 - feature_means[price_idx]) / feature_stds[price_idx],
         100,
     )
@@ -395,15 +391,15 @@ if PRICESENS:
 
     for train_type, color in zip(train_types, colors):
         col_name = f"train_type_{train_type}"
-        if col_name not in X_val.columns:
-            print(f"Column {col_name} not found in X_val. Skipping.")
+        if col_name not in X_val_scaled.columns:
+            print(f"Column {col_name} not found in X_val_scaled. Skipping.")
             continue
-        train_type_idx = list(X_val.columns).index(col_name)
+        train_type_idx = list(X_val_scaled.columns).index(col_name)
         standardized_1 = (1 - feature_means[train_type_idx]) / feature_stds[
             train_type_idx
         ]
-        mask = np.isclose(X_val[col_name], standardized_1)
-        eligible_baselines = X_val[mask]
+        mask = np.isclose(X_val_scaled[col_name], standardized_1)
+        eligible_baselines = X_val_scaled[mask]
 
         if len(eligible_baselines) < n_baselines:
             print(

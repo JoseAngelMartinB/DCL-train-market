@@ -68,10 +68,6 @@ if scaled_feat:
     X_train_scaled[scaled_feat] = feat_scaler.fit_transform(X_train[scaled_feat])
     X_val_scaled[scaled_feat] = feat_scaler.transform(X_val[scaled_feat])
 
-# Convert to DataFrame to maintain column names
-X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
-X_val_scaled = pd.DataFrame(X_val_scaled, columns=X_val.columns, index=X_val.index)
-
 # Save feature mean and std
 feature_means = feat_scaler.mean_ if scaled_feat else np.zeros(len(X.columns))
 feature_stds = feat_scaler.scale_ if scaled_feat else np.ones(len(X.columns))
