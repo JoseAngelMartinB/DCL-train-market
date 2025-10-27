@@ -235,8 +235,8 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
             )
             
             # Use robust Big M values
-            M_left = 10  # Conservative Big M for standardized features
-            M_right = 10
+            M_left = 12  # Conservative Big M for standardized features
+            M_right = 12
             
             # Left child constraints (feature <= threshold when left child is active)
             opt_model.addConstr(
