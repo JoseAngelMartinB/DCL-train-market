@@ -366,8 +366,8 @@ for day in DAYS:
             opt_m.update()
 
         # --- Add total demand constraints ---
-        opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.6 * total_passengers, name="min_total_demand")
-        opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.4 * total_passengers, name="max_total_demand")
+        opt_m.addConstr(gp.quicksum(s_aux_vars) >= 0.4 * total_passengers, name="min_total_demand")
+        opt_m.addConstr(gp.quicksum(s_aux_vars) <= 1.6 * total_passengers, name="max_total_demand")
 
         # --- Objective: maximize revenue for AVE/AVLO trains ---
         total_revenue = gp.LinExpr()
