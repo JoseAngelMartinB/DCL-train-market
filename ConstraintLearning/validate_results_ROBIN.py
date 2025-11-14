@@ -173,7 +173,7 @@ if __name__ == '__main__':
 
                 # %%
                 # Execute the ROBIN simulation with the modified supply configuration
-                print("Starting ROBIN simulation with progress bar...")
+                print("Starting ROBIN simulation...")
                 args_list = [(sim, output_supply_file, path_config_demand, model_subpath, delta) for sim in range(num_simulations)]
                 # Use multiprocessing to run the simulations in parallel
                 with multiprocessing.Pool(processes=num_processors) as pool:
