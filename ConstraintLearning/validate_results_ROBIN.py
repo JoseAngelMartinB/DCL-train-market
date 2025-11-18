@@ -13,17 +13,21 @@ from tqdm import tqdm
 from robin.kernel.entities import Kernel
 
 # --- Config ---
-optim_model_vect = ['Model_1'] # Model_1, Model_2, Model_3
-ml_model_vect = ['tree', 'rf', 'gbm', 'ffnn'] # tree, rf, gbm, ffnn
+optim_models = {
+    'Model_1': ['tree', 'rf', 'gbm', 'ffnn'],
+    #'Model_2': ['demand_gbm-price_gbm'],
+}
 delta_vect = [5, 10, 20]
 days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
 num_simulations = 25 # 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 num_processors = 5  # Number of processors for parallel execution
+competitors_response = True # If True, competitors' prices are updated based on RENFE prices
 keep_validation_results = True # If True, keeps the validation results after execution
 reset_previous_output = False # If True, resets the final results file with all the previous results and starts from scratch
 skip_previous_results = False # If True, skips the experiments that have already been processed in the final results file
 restricted_service_providers = None # [2,4] # 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO # Do not update prices for these service providers
+COMPETITORS_PRICES_INTERVAL = [10, 140] # Min and max price for competitors' services (same as in data generation)
 
 # --- Paths ---
 path_config_supply = '../DataGenerationROBIN/data/MAD-BCN/supply_MAD-BCN_2025.yaml'
@@ -52,8 +56,35 @@ def run_sim(args):
     gc.collect()
     return sim
 
+# Function to obtain the competitor's price based on RENFE prices using the same formulae as in the data generation step
+def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2):
+    """
+    Generate the price of a competitor's service using RENFE prices as a reference.
+
+    This function generates a synthetic price for a competitor train service at time `t`, by 
+    taking into account the reference/base competitor price (`price`), as well as the
+    nearest previous (`PR1`) and next (`PR2`) RENFE prices. It weights these reference prices 
+    inversely by the temporal distance (in minutes) to the competitor's departure time, adding 
+    a small random perturbation to simulate pricing variability.
+    """
+    error = np.random.normal(0, 10)
+
+    d_tr1 = abs((t - t_R1).total_seconds() / 60)
+    d_tr2 = abs((t - t_R2).total_seconds() / 60)
+    denominator = 2/3 + 1/d_tr1 + 1/d_tr2
+
+    price = 2/3 * ref_price/denominator + 1/d_tr1 * PR1/denominator + 1/d_tr2 * PR2/denominator + error
+    
+    # Ensure the price is within the specified interval
+    price = max(min(price, COMPETITORS_PRICES_INTERVAL[1]), COMPETITORS_PRICES_INTERVAL[0])
+    price = round(price, 2)
+
+    return price
 
 if __name__ == '__main__':
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(BASE_DIR)
+
     # Initialize final results dataframe
     if not os.path.exists(final_results_path) or reset_previous_output:
         if os.path.exists(final_results_path):
@@ -88,7 +119,7 @@ if __name__ == '__main__':
     # Start the validation process
     print("Starting validation process...")
     init_time = time.time()
-    for optim_model in optim_model_vect:
+    for optim_model in optim_models.keys():
         print(f"\n\n\nProcessing optimization model: {optim_model}")
         model_subpath = f'{optim_model}'
 
@@ -101,7 +132,7 @@ if __name__ == '__main__':
             shutil.rmtree(os.path.join(path_kernel_output, model_subpath))
             print(f"Removed previous output directory: {os.path.join(path_kernel_output, model_subpath)}")
 
-        for ml_model in ml_model_vect:
+        for ml_model in optim_models[optim_model]:
             print(f"\n\nProcessing ML model: {ml_model}")
 
             # Load the files and execute the ROBIN simulation for each delta value
@@ -130,9 +161,49 @@ if __name__ == '__main__':
                     matching_files.sort(key=lambda f: float(pattern.match(f).group(1) + '.' + pattern.match(f).group(2)), reverse=True)
                     best_file = matching_files[0]
                     print(f"Best file for day {day}: {best_file}")
-                    # Concatenate the data from the best file
+
+                    # Load the data from the best file
                     df = pd.read_csv(os.path.join(os.path.join(model_subpath, f"results_{ml_model}"), best_file))
                     df['day'] = day
+                    df['departure_time'] = pd.to_datetime(df['train_idx'].str.split('_').str[1], format='%d-%m-%Y-%H.%M')
+
+                    # Simulate competitors' response to new prices
+                    if competitors_response:
+                        renfe_prices = df[df['train_type'].isin(['AVE', 'AVLO'])][['departure_time', 'optimized_price']].set_index('departure_time')
+                        competitors_indices = df[~df['train_type'].isin(['AVE', 'AVLO'])].index
+                        for idx in competitors_indices:
+                            departure_time = df.at[idx, 'departure_time']
+                            # Find nearest RENFE prices before and after the competitor's departure time
+                            renfe_before = renfe_prices[renfe_prices.index <= departure_time]
+                            # Obtain the reference prices (PR1, PR2) for get_competitors_price function
+                            if renfe_before.empty:
+                                # Mean RENFE price at that day
+                                PR1 = renfe_prices['optimized_price'].mean()
+                                t_R1 = departure_time - pd.Timedelta(hours=12)
+                            else:
+                                PR1 = renfe_before.iloc[-1]['optimized_price']
+                                t_R1 = renfe_before.index[-1]
+                            renfe_after = renfe_prices[renfe_prices.index >= departure_time]
+                            if renfe_after.empty:
+                                # Mean RENFE price at that day
+                                PR2 = renfe_prices['optimized_price'].mean()
+                                t_R2 = departure_time + pd.Timedelta(hours=12)
+                            else:
+                                PR2 = renfe_after.iloc[0]['optimized_price']
+                                t_R2 = renfe_after.index[0]
+                            # Update competitor's price
+                            new_price = get_competitors_price(
+                                ref_price=df.at[idx, 'optimized_price'],
+                                t=departure_time,
+                                PR1=PR1,
+                                PR2=PR2,
+                                t_R1=t_R1,
+                                t_R2=t_R2
+                            )
+                            df.at[idx, 'optimized_price'] = new_price
+                            df.at[idx, 'difference'] = new_price - df.at[idx, 'original_price']
+
+                    # Concatenate that day to the optimized prices dataframe
                     optimized_prices = pd.concat([optimized_prices, df], ignore_index=True)
                     best_optim_revenue[day] = float(pattern.match(best_file).group(1) + '.' + pattern.match(best_file).group(2))
 
@@ -140,10 +211,11 @@ if __name__ == '__main__':
                     raise ValueError("No optimized prices found for the specified days.")
 
 
-                #%%
-                # Modify the supply data to include the optimized prices
+                #%% Modify the supply data to include the optimized prices
+                # Load the original supply configuration file
                 with open(path_config_supply, 'r') as file:
                     supply_config = yaml.safe_load(file)
+                # Filter only the days to test
                 supply_config['service'] = [item for item in supply_config['service'] if item['date'] in days_to_test]
 
                 # Update the prices in the supply configuration
@@ -292,7 +364,7 @@ if __name__ == '__main__':
         shutil.rmtree(os.path.join(path_kernel_output, model_subpath))
         print(f"Removed ROBIN output directory: {os.path.join(path_kernel_output, model_subpath)}")
     if not keep_validation_results:
-        for optim_model in optim_model_vect:
+        for optim_model in optim_models.keys():
             model_path = os.path.join(path_validation_results, optim_model)
             if os.path.exists(model_path):
                 shutil.rmtree(model_path)
