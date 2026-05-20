@@ -58,7 +58,7 @@ def run_sim(args):
     return sim
 
 # Function to obtain the competitor's price based on RENFE prices using the same formulae as in the data generation step
-def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2, rng=np.random.default_rng(0)) -> float:
+def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2) -> float:
     """
     Generate the price of a competitor's service using RENFE prices as a reference.
 
@@ -68,13 +68,12 @@ def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2, rng=np.random.defa
     inversely by the temporal distance (in minutes) to the competitor's departure time, adding 
     a small random perturbation to simulate pricing variability.
     """
-    error = rng.normal(0, 10)
 
     d_tr1 = max(abs((t - t_R1).total_seconds() / 60), 1)
     d_tr2 = max(abs((t - t_R2).total_seconds() / 60), 1)
     denominator = 2/3 + 1/d_tr1 + 1/d_tr2
 
-    price = 2/3 * ref_price/denominator + 1/d_tr1 * PR1/denominator + 1/d_tr2 * PR2/denominator + error
+    price = 2/3 * ref_price/denominator + 1/d_tr1 * PR1/denominator + 1/d_tr2 * PR2/denominator
     
     # Ensure the price is within the specified interval
     price = max(min(price, COMPETITORS_PRICES_INTERVAL[1]), COMPETITORS_PRICES_INTERVAL[0])
@@ -302,8 +301,7 @@ if __name__ == '__main__':
                                 PR1=PR1,
                                 PR2=PR2,
                                 t_R1=t_R1,
-                                t_R2=t_R2,
-                                rng=np.random.default_rng(seed)
+                                t_R2=t_R2
                             )
                             df.at[idx, 'optimized_price'] = new_price
                             df.at[idx, 'difference'] = new_price - df.at[idx, 'original_price']

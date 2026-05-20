@@ -56,7 +56,7 @@ DAYS = [
     '2025-03-12',  # Weekday low demand day
     '2025-03-22',  # Weekend low demand day
     '2025-08-13',  # Weekday high demand day
-    '2025-08-23'   # Weekend high demand day
+    '2025-08-23',   # Weekend high demand day
 ]
 
 # Check if file exists
