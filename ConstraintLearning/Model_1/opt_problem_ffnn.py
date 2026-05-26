@@ -237,42 +237,40 @@ for day in DAYS:
                 if i == price_idx:
                     if train_type_AVE == 1 or train_type_AVLO == 1:
                         price_var = price_vars[train_idx]
+                        price_lb, price_ub = price_bounds[train_idx]
                         x[0][i] = (price_var - feature_means[i]) / feature_stds[i]
-                        x_maxs[0][i] = (feature_maxs[i] - feature_means[i]) / feature_stds[i]
-                        x_mins[0][i] = (feature_mins[i] - feature_means[i]) / feature_stds[i]
+                        x_maxs[0][i] = (price_ub - feature_means[i]) / feature_stds[i]
+                        x_mins[0][i] = (price_lb - feature_means[i]) / feature_stds[i]
                     else:
                         x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         x_maxs[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                         x_mins[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                 elif i in [PRICE_COMP_M2_IDX, PRICE_COMP_M1_IDX, PRICE_COMP_P1_IDX, PRICE_COMP_P2_IDX]:
-                    # Handle edge cases for competitor prices
+                    # Determine which competitor price variable corresponds to this index
                     if i == PRICE_COMP_M2_IDX:
-                        if train_idx < 2:  # First two trains
-                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
-                        else:
-                            prev_price = price_vars[train_idx - 2]
-                            x[0][i] = (prev_price - feature_means[i]) / feature_stds[i]
+                        comp_train_idx = train_idx - 2
                     elif i == PRICE_COMP_M1_IDX:
-                        if train_idx < 1:  # First train
-                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
-                        else:
-                            prev_price = price_vars[train_idx - 1]
-                            x[0][i] = (prev_price - feature_means[i]) / feature_stds[i]
+                        comp_train_idx = train_idx - 1
                     elif i == PRICE_COMP_P1_IDX:
-                        if train_idx >= n_trains_context - 1:  # Last train
-                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
-                        else:
-                            next_price = price_vars[train_idx + 1]
-                            x[0][i] = (next_price - feature_means[i]) / feature_stds[i]
+                        comp_train_idx = train_idx + 1
                     else:  # PRICE_COMP_P2_IDX
-                        if train_idx >= n_trains_context - 2:  # Last two trains
-                            x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
-                        else:
-                            next_price = price_vars[train_idx + 2]
-                            x[0][i] = (next_price - feature_means[i]) / feature_stds[i]
-                    # Set bounds for all competitor price features
-                    x_maxs[0][i] = (feature_maxs[i] - feature_means[i]) / feature_stds[i]
-                    x_mins[0][i] = (feature_mins[i] - feature_means[i]) / feature_stds[i]
+                        comp_train_idx = train_idx + 2
+
+                    # If competitor exists (i.e. index is within bounds of the train list), use its price variable and 
+                    # its actual optimization bounds
+                    if 0 <= comp_train_idx < n_trains_context:
+                        comp_price_var = price_vars[comp_train_idx]
+                        comp_lb, comp_ub = price_bounds[comp_train_idx]
+
+                        x[0][i] = (comp_price_var - feature_means[i]) / feature_stds[i]
+                        x_mins[0][i] = (comp_lb - feature_means[i]) / feature_stds[i]
+                        x_maxs[0][i] = (comp_ub - feature_means[i]) / feature_stds[i]
+
+                    # Edge case: no competitor exists, use fixed context value
+                    else:
+                        x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        x_mins[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        x_maxs[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                 else:
                     x[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
                     x_maxs[0][i] = (context[i] - feature_means[i]) / feature_stds[i]
@@ -337,15 +335,15 @@ for day in DAYS:
 
             # --- ActualDemand for this train ---
             cap = float(capacity_value)
-            M = cap * 1.25  # Large constant for constraints
-            #M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues 
+            #M = cap * 1.25  # Large constant for constraints
+            M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues 
 
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
             bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")
             opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
-            opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name="output_var_nonneg_le_output_plus_M")
+            opt_m.addConstr(s_aux <= output_var + M * (1 - bin1_aux), name="output_var_nonneg_le_output_plus_M_{train_idx}")
             opt_m.addConstr(s_aux <= M * bin1_aux, name=f"output_var_nonneg_le_M_{train_idx}")
             opt_m.addConstr(output_var <= M * bin1_aux, name=f"output_var_le_M_{train_idx}")
             opt_m.addConstr(output_var >= -M * (1 - bin1_aux), name=f"output_var_ge_minus_M_{train_idx}")
