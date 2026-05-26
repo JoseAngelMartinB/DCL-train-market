@@ -293,14 +293,27 @@ for day in DAYS:
                     if ind < len(layers) - 1:
                         ub = sum(x_maxs[ind][j] * max(0, m[j]) + x_mins[ind][j] * min(0, m[j]) for j in range(l.in_features)) + b
                         lb = sum(x_mins[ind][j] * max(0, m[j]) + x_maxs[ind][j] * min(0, m[j]) for j in range(l.in_features)) + b
-                        x_maxs[ind+1][i] = ub
-                        x_mins[ind+1][i] = lb
 
-                        x[ind+1][i] = opt_m.addVar(0, max(0, ub), name=f'x_{ind+1}_{i}_train{train_idx}')
+                        # ReLU output bounds must be propagated to the next layer
+                        relu_ub = max(0.0, ub)
+                        relu_lb = max(0.0, lb)
+                        x_maxs[ind+1][i] = relu_ub
+                        x_mins[ind+1][i] = relu_lb
+
+                        x[ind+1][i] = opt_m.addVar(0, relu_ub, name=f'x_{ind+1}_{i}_train{train_idx}')
                         z[ind+1][i] = opt_m.addVar(0, 1, vtype=gp.GRB.BINARY, name=f'z_{ind+1}_{i}_train{train_idx}')
-                        opt_m.addConstr(x[ind+1][i] >= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b)
-                        opt_m.addConstr(x[ind+1][i] <= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b - lb * (1 - z[ind+1][i]))
-                        opt_m.addConstr(x[ind+1][i] <= ub * z[ind+1][i])
+                        opt_m.addConstr(
+                            x[ind+1][i] >= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b,
+                            name=f"relu_ge_affine_l{ind+1}_n{i}_train{train_idx}"
+                        )
+                        opt_m.addConstr(
+                            x[ind+1][i] <= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b - lb * (1 - z[ind+1][i]),
+                            name=f"relu_le_affine_shift_l{ind+1}_n{i}_train{train_idx}"
+                        )
+                        opt_m.addConstr(
+                            x[ind+1][i] <= ub * z[ind+1][i],
+                            name=f"relu_le_ubz_l{ind+1}_n{i}_train{train_idx}"
+                        )
                     else:
                         x[ind+1][i] = opt_m.addVar(lb=-gp.GRB.INFINITY, name=f'x_{ind+1}_{i}_train{train_idx}')
                         opt_m.addConstr(x[ind+1][i] == (sum(x[ind][j] * m[j] for j in range(l.in_features)) + b) * target_std + target_mean)
