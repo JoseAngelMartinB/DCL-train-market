@@ -42,7 +42,7 @@ OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_
 RENFE_PRICES_INTERVAL = [10, 160]
 MIPGap = 0.01  # Optimality gap for optimization
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
-MAX_PREDICTED_DEMAND = 2000  # Maximum predicted demand for a train
+MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Specific parameters for Feed-Forward Neural Network (FFNN)
@@ -295,35 +295,50 @@ for day in DAYS:
                         lb = sum(x_mins[ind][j] * max(0, m[j]) + x_maxs[ind][j] * min(0, m[j]) for j in range(l.in_features)) + b
 
                         # ReLU output bounds must be propagated to the next layer
-                        relu_ub = max(0.0, ub)
-                        relu_lb = max(0.0, lb)
-                        x_maxs[ind+1][i] = relu_ub
-                        x_mins[ind+1][i] = relu_lb
+                        aff_expr = sum(x[ind][j] * m[j] for j in range(l.in_features)) + b
 
-                        x[ind+1][i] = opt_m.addVar(0, relu_ub, name=f'x_{ind+1}_{i}_train{train_idx}')
-                        z[ind+1][i] = opt_m.addVar(0, 1, vtype=gp.GRB.BINARY, name=f'z_{ind+1}_{i}_train{train_idx}')
-                        opt_m.addConstr(
-                            x[ind+1][i] >= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b,
-                            name=f"relu_ge_affine_l{ind+1}_n{i}_train{train_idx}"
-                        )
-                        opt_m.addConstr(
-                            x[ind+1][i] <= sum(x[ind][j] * m[j] for j in range(l.in_features)) + b - lb * (1 - z[ind+1][i]),
-                            name=f"relu_le_affine_shift_l{ind+1}_n{i}_train{train_idx}"
-                        )
-                        opt_m.addConstr(
-                            x[ind+1][i] <= ub * z[ind+1][i],
-                            name=f"relu_le_ubz_l{ind+1}_n{i}_train{train_idx}"
-                        )
+                        if ub <= 0:
+                            # ReLU always inactive
+                            x[ind+1][i] = 0
+                            x_maxs[ind+1][i] = 0
+                            x_mins[ind+1][i] = 0
+                        elif lb >= 0:
+                            # ReLU always active
+                            x[ind+1][i] = aff_expr
+                            x_maxs[ind+1][i] = ub
+                            x_mins[ind+1][i] = lb
+                        else:
+                            # ReLU can be active or inactive, need binary variable
+                            relu_ub = max(0.0, ub)
+                            relu_lb = max(0.0, lb)
+                            x_maxs[ind+1][i] = relu_ub
+                            x_mins[ind+1][i] = relu_lb
+
+                            x[ind+1][i] = opt_m.addVar(lb=relu_lb, ub=relu_ub, name=f'x_{ind+1}_{i}_train{train_idx}')
+                            z[ind+1][i] = opt_m.addVar(lb=0, ub=1, vtype=gp.GRB.BINARY, name=f'z_{ind+1}_{i}_train{train_idx}')
+                            opt_m.addConstr(
+                                x[ind+1][i] >= aff_expr,
+                                name=f"relu_ge_affine_l{ind+1}_n{i}_train{train_idx}"
+                            )
+                            opt_m.addConstr(
+                                x[ind+1][i] <= aff_expr - lb * (1 - z[ind+1][i]),
+                                name=f"relu_le_affine_shift_l{ind+1}_n{i}_train{train_idx}"
+                            )
+                            opt_m.addConstr(
+                                x[ind+1][i] <= ub * z[ind+1][i],
+                                name=f"relu_le_ubz_l{ind+1}_n{i}_train{train_idx}"
+                            )
                     else:
+                        aff_expr = sum(x[ind][j] * m[j] for j in range(l.in_features)) + b
                         x[ind+1][i] = opt_m.addVar(lb=-gp.GRB.INFINITY, name=f'x_{ind+1}_{i}_train{train_idx}')
-                        opt_m.addConstr(x[ind+1][i] == (sum(x[ind][j] * m[j] for j in range(l.in_features)) + b) * target_std + target_mean)
+                        opt_m.addConstr(x[ind+1][i] == aff_expr * target_std + target_mean)
                         output_var = x[ind+1][i]
                 opt_m.update()
 
             # --- ActualDemand for this train ---
             cap = float(capacity_value)
-            #M = cap * 1000  # Large constant for constraints
-            M = max(cap * 1.5, MAX_PREDICTED_DEMAND*1.5)  # Ensure M is large enough but not too large to avoid numerical issues 
+            M = cap * 1.25  # Large constant for constraints
+            #M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues 
 
             # First, handle max(0, output_var)
             s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
