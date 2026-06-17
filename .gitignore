@@ -62,5 +62,8 @@ coverage.xml
 **/kernel_output/
 **/ROBIN_output/
 
+# Logs folders
+**/logs/
+
 # Custom user ignores
 
