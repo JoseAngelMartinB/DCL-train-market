@@ -239,7 +239,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "loss_curves.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     plt.figure(figsize=(10, 5))
     plt.plot(val_r2s, label="Validation R2", color="orange")
@@ -250,7 +251,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "val_r2_curve.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     # --- Plot predictions vs true values ---
     plt.figure(figsize=(8, 6))
@@ -266,7 +268,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "predicted_vs_true.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     # --- Plot histogram of prediction errors ---
     plt.figure(figsize=(8, 6))
@@ -278,7 +281,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "prediction_errors_histogram.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     # --- Plot histogram of true vs predicted values ---
     plt.figure(figsize=(10, 6))
@@ -307,7 +311,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "true_vs_predicted_histogram.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     # --- Plot Empirical CDF of True vs Predicted Values ---
     plt.figure(figsize=(10, 6))
@@ -332,7 +337,8 @@ if SHOWPLOTS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "empirical_cdf_true_vs_predicted.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
     # --- Count number of instances at a distance < d of the real value ---
     def count_within_distance(y_true, y_pred, distance):
@@ -373,7 +379,8 @@ if SHOWPLOTS:
     plt.title("Permutation Feature Importance")
     plt.tight_layout()
     plt.savefig(FIG_PATH + "permutation_feature_importance.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()
 
 # --- Partial Dependence Plot for Price ---
 if PRICESENS:
@@ -460,4 +467,5 @@ if PRICESENS:
     plt.grid()
     plt.tight_layout()
     plt.savefig(FIG_PATH + "partial_dependence_price.pdf")
-    plt.show()
+    #plt.show()
+    plt.close()

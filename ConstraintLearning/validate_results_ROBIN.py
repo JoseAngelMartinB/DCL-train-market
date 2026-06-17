@@ -22,10 +22,10 @@ days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
 num_simulations = 25 # 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 num_processors = 5  # Number of processors for parallel execution
-competitors_response = False # If True, competitors' prices are updated based on RENFE prices
+competitors_response = True # If True, competitors' prices are updated based on RENFE prices
 keep_validation_results = True # If True, keeps the validation results after execution
 reset_previous_output = False # If True, resets the final results file with all the previous results and starts from scratch
-skip_previous_results = False # If True, skips the experiments that have already been processed in the final results file
+skip_previous_results = True # If True, skips the experiments that have already been processed in the final results file
 restricted_service_providers = None # [2,4] # 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO # Do not update prices for these service providers
 COMPETITORS_PRICES_INTERVAL = [10, 140] # Min and max price for competitors' services (same as in data generation)
 clean_original_ROBIN_output = False # If True, removes the original ROBIN output files after execution
@@ -36,18 +36,47 @@ path_config_supply = '../DataGenerationROBIN/data/MAD-BCN/supply_MAD-BCN_2025.ya
 path_config_demand = '../DataGenerationROBIN/data/MAD-BCN/demand_data.yaml'
 path_validation_results = 'validation_data/'
 path_kernel_output = 'validation_data/ROBIN_output/'
+path_services_price = '../DataGenerationROBIN/data/MAD-BCN/prices/prices_ext_MAD-BCN_2025.csv'
 path_original_results = '../DataGenerationROBIN/data/MAD-BCN/aggregated/aggregated_MAD-BCN_2025.csv'
-final_results_path = os.path.join(path_validation_results, f"final_results.csv")
+path_final_results = os.path.join(path_validation_results, f"final_results.csv")
+final_results_columns = [
+    'optim_model',
+    'ml_model',
+    'delta',
+    'day',
+    'original_passengers_mean',
+    'original_passengers_std',
+    'original_passengers_se',
+    'new_passengers_mean',
+    'new_passengers_std',
+    'new_passengers_se',
+    'original_revenue_mean',
+    'original_revenue_std',
+    'original_revenue_se',
+    'optimized_revenue',
+    'actual_revenue_mean',
+    'actual_revenue_std',
+    'actual_revenue_se',
+    'revenue_difference_mean',
+    'revenue_difference_std',
+    'revenue_difference_se',
+    'revenue_difference_percentage',
+    'average_original_revenue_per_passenger_RENFE',
+    'average_original_revenue_per_passenger_competitors',
+    'average_revenue_per_passenger_RENFE',
+    'average_revenue_per_passenger_competitors',
+]
+
 
 # Main function to run the ROBIN simulation
 def run_sim(args):
     sim, output_supply_file, path_config_demand, robin_output_path = args
     kernel = Kernel(
         path_config_supply=output_supply_file,
-        path_config_demand=path_config_demand,
-        seed=seed + sim)
+        path_config_demand=path_config_demand)
     kernel.simulate(
         robin_output_path,
+        seed=seed + sim,
         departure_time_hard_restriction=False,
         calculate_global_utility=False)
     services_df = pd.read_csv(robin_output_path, low_memory=False)
@@ -86,39 +115,28 @@ if __name__ == '__main__':
     os.chdir(BASE_DIR)
 
     # Initialize final results dataframe
-    if not os.path.exists(final_results_path) or reset_previous_output:
-        if os.path.exists(final_results_path):
-            os.remove(final_results_path)
-            print(f"Removed previous final results file: {final_results_path}")
+    if not os.path.exists(path_final_results) or reset_previous_output:
+        if os.path.exists(path_final_results):
+            os.remove(path_final_results)
+            print(f"Removed previous final results file: {path_final_results}")
         print("Creating new final results dataframe...")
-        final_results = pd.DataFrame(columns=[
-            'optim_model',
-            'ml_model',
-            'delta',
-            'day',
-            'original_passengers_mean',
-            'original_passengers_std',
-            'original_passengers_se',
-            'new_passengers_mean',
-            'new_passengers_std',
-            'new_passengers_se',
-            'original_revenue_mean',
-            'original_revenue_std',
-            'original_revenue_se',
-            'optimized_revenue',
-            'actual_revenue_mean',
-            'actual_revenue_std',
-            'actual_revenue_se',
-            'revenue_difference_mean',
-            'revenue_difference_std',
-            'revenue_difference_se',
-            'revenue_difference_percentage',
-            'average_price',
-            'average_original_price'
-        ])
+        final_results = pd.DataFrame(columns=final_results_columns)
     else:
-        final_results = pd.read_csv(final_results_path)
-        print(f"Loaded existing final results from {final_results_path}")
+        final_results = pd.read_csv(path_final_results)
+        print(f"Loaded existing final results from {path_final_results}")
+
+    # Load reference prices used to recompute competitors prices
+    services_price_df = pd.read_csv(
+        path_services_price,
+        usecols=['service_id', 'original_price_scraping']
+    )
+    services_price_df['ref_price'] = pd.to_numeric(services_price_df['original_price_scraping'], errors='coerce')
+    service_ref_price = (
+        services_price_df
+        .dropna(subset=['ref_price'])
+        .drop_duplicates(subset=['service_id'], keep='last')
+        .set_index('service_id')['ref_price']
+    )
 
 
     #%%
@@ -270,12 +288,18 @@ if __name__ == '__main__':
                     df['day'] = day
                     df['departure_time'] = pd.to_datetime(df['train_idx'].str.split('_').str[1], format='%d-%m-%Y-%H.%M')
 
+                    #%%
                     # Simulate competitors' response to new prices
                     if competitors_response:
                         renfe_prices = df[df['train_type'].isin(['AVE', 'AVLO'])][['departure_time', 'optimized_price']].set_index('departure_time')
                         competitors_indices = df[~df['train_type'].isin(['AVE', 'AVLO'])].index
                         for idx in competitors_indices:
                             departure_time = df.at[idx, 'departure_time']
+                            ref_price = service_ref_price.get(df.at[idx, 'train_idx'], np.nan)
+                            if pd.isna(ref_price):
+                                # Fallback for missing/invalid entries in services price CSV
+                                ref_price = df.at[idx, 'original_price']
+                                print(f"Warning: Missing reference price for service {df.at[idx, 'train_idx']}. Using original price {ref_price} as fallback.")
                             # Find nearest RENFE prices before and after the competitor's departure time
                             renfe_before = renfe_prices[renfe_prices.index <= departure_time]
                             # Obtain the reference prices (PR1, PR2) for get_competitors_price function
@@ -296,13 +320,21 @@ if __name__ == '__main__':
                                 t_R2 = renfe_after.index[0]
                             # Update competitor's price
                             new_price = get_competitors_price(
-                                ref_price=df.at[idx, 'optimized_price'],
+                                ref_price=ref_price,
                                 t=departure_time,
                                 PR1=PR1,
                                 PR2=PR2,
                                 t_R1=t_R1,
                                 t_R2=t_R2
                             )
+
+                            # Avoid competitors' prices delta being higher than the specified delta value, to avoid unrealistic scenarios where competitors would increase their prices more than RENFE's price increase
+                            #original_price = df.at[idx, 'optimized_price']
+                            #if new_price > original_price + delta:
+                            #    new_price = original_price + delta
+                            #elif new_price < original_price - delta:
+                            #    new_price = original_price - delta
+
                             df.at[idx, 'optimized_price'] = new_price
                             df.at[idx, 'difference'] = new_price - df.at[idx, 'original_price']
 
@@ -402,6 +434,16 @@ if __name__ == '__main__':
 
                     del robin_output, robin_output_grouped
                     gc.collect()
+
+                agg_dataset = agg_dataset.merge(
+                    original_agg_data[['service_id', 'original_passengers_list']],
+                    left_on='train_idx',
+                    right_on='service_id',
+                    how='left'
+                )
+                agg_dataset['original_passengers_list'] = agg_dataset['original_passengers_list'].apply(
+                    lambda x: x if isinstance(x, list) else []
+                )
                     
                 # Save the aggregated dataset
                 os.makedirs(os.path.join(path_validation_results, optim_model), exist_ok=True)
@@ -411,15 +453,16 @@ if __name__ == '__main__':
 
 
                 # %%
-                # Compute the total revenue per day for Renfe [AVE + AVLO]
-                agg_dataset_RENFE = agg_dataset[(agg_dataset['train_type'] == 'AVE') | (agg_dataset['train_type'] == 'AVLO')]
-                agg_dataset_RENFE = agg_dataset_RENFE.merge(original_agg_data[['service_id', 'original_passengers_list']],
-                                                            left_on='train_idx', right_on='service_id', how='left')
+                # Compute the total revenue per day for Renfe [AVE + AVLO] and competitors
+                agg_dataset_RENFE = agg_dataset[(agg_dataset['train_type'] == 'AVE') | (agg_dataset['train_type'] == 'AVLO')].copy()
+                agg_dataset_competitors = agg_dataset[~((agg_dataset['train_type'] == 'AVE') | (agg_dataset['train_type'] == 'AVLO'))].copy()
 
                 agg_dataset_RENFE['original_revenue_list'] = agg_dataset_RENFE.apply(lambda row: [p * row['original_price'] for p in row['original_passengers_list']], axis=1)
+                agg_dataset_competitors['original_revenue_list'] = agg_dataset_competitors.apply(lambda row: [p * row['original_price'] for p in row['original_passengers_list']], axis=1)
                 
                 # Calculate the new revenue
                 agg_dataset_RENFE['revenue_list'] = agg_dataset_RENFE.apply(lambda row: [p * row['optimized_price'] for p in row['passengers_list']], axis=1)
+                agg_dataset_competitors['revenue_list'] = agg_dataset_competitors.apply(lambda row: [p * row['optimized_price'] for p in row['passengers_list']], axis=1)
 
                 # Save the Renfe revenue data
                 renfe_revenue_path = os.path.join(path_validation_results, optim_model, f"{ml_model}_validation_delta_{delta}_renfe_revenue.csv")
@@ -464,6 +507,19 @@ if __name__ == '__main__':
                     print(f"Day {day}: Actual revenue (mean): {actual_revenue_mean:,.2f}€, Original Revenue (mean): {original_revenue_mean:,.2f}€, "
                         f"Difference: {actual_revenue_mean - original_revenue_mean:,.2f}€ ({(actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100:.2f}%)")
                     
+                    day_data_competitors = agg_dataset_competitors[agg_dataset_competitors['day'] == day]
+                    comp_original_revenue_matrix = np.array(day_data_competitors['original_revenue_list'].tolist(), dtype=float)
+                    comp_original_passengers_matrix = np.array(day_data_competitors['original_passengers_list'].tolist(), dtype=float)
+                    comp_revenue_matrix = np.array(day_data_competitors['revenue_list'].tolist(), dtype=float)
+                    comp_passengers_matrix = np.array(day_data_competitors['passengers_list'].tolist(), dtype=float)
+
+                    comp_original_revenue_total = comp_original_revenue_matrix.sum()
+                    comp_original_passengers_total = comp_original_passengers_matrix.sum()
+                    comp_revenue_total = comp_revenue_matrix.sum()
+                    comp_passengers_total = comp_passengers_matrix.sum()
+
+                    average_original_revenue_per_passenger_competitors = comp_original_revenue_total / comp_original_passengers_total if comp_original_passengers_total > 0 else 0
+                    average_revenue_per_passenger_competitors = comp_revenue_total / comp_passengers_total if comp_passengers_total > 0 else 0
 
                     # Append the results to the final results dataframe
                     final_results.loc[len(final_results)] = {
@@ -488,13 +544,15 @@ if __name__ == '__main__':
                         'revenue_difference_std': revenue_difference_std,
                         'revenue_difference_se': revenue_difference_se,
                         'revenue_difference_percentage': (actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100,
-                        'average_price': day_data['optimized_price'].mean(),
-                        'average_original_price': day_data['original_price'].mean()
+                        'average_original_revenue_per_passenger_RENFE': original_revenue_mean / original_passengers_mean if original_passengers_mean > 0 else 0,
+                        'average_original_revenue_per_passenger_competitors': average_original_revenue_per_passenger_competitors,
+                        'average_revenue_per_passenger_RENFE': actual_revenue_mean / new_passengers_mean if new_passengers_mean > 0 else 0,
+                        'average_revenue_per_passenger_competitors': average_revenue_per_passenger_competitors
                     }
 
                 #%%
                 # Save partial final results to a CSV file
-                final_results.to_csv(final_results_path, index=False)
+                final_results.to_csv(path_final_results, index=False)
 
     # %%
     # Clean up ROBIN output files
@@ -522,4 +580,4 @@ if __name__ == '__main__':
 
     print("\nResults validated susccessfully!")
     print(f"Total execution time: {total_time / 60:.2f} minutes")
-    print(f"Final results saved to {final_results_path}")
+    print(f"Final results saved to {path_final_results}")
