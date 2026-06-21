@@ -22,7 +22,7 @@ days_to_test = ['2025-03-12', '2025-03-22', '2025-08-13', '2025-08-23']
 num_simulations = 25 # 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 num_processors = 5  # Number of processors for parallel execution
-competitors_response = True # If True, competitors' prices are updated based on RENFE prices
+competitors_response = False # If True, competitors' prices are updated based on RENFE prices
 keep_validation_results = True # If True, keeps the validation results after execution
 reset_previous_output = False # If True, resets the final results file with all the previous results and starts from scratch
 skip_previous_results = True # If True, skips the experiments that have already been processed in the final results file
@@ -61,9 +61,19 @@ final_results_columns = [
     'revenue_difference_std',
     'revenue_difference_se',
     'revenue_difference_percentage',
-    'average_original_revenue_per_passenger_RENFE',
+    'average_original_revenue_per_passenger',
+    'average_revenue_per_passenger',
+    'original_revenue_mean_competitors',
+    'original_revenue_std_competitors',
+    'original_revenue_se_competitors',
+    'actual_revenue_mean_competitors',
+    'actual_revenue_std_competitors',
+    'actual_revenue_se_competitors',
+    'revenue_difference_mean_competitors',
+    'revenue_difference_std_competitors',
+    'revenue_difference_se_competitors',
+    'revenue_difference_percentage_competitors',
     'average_original_revenue_per_passenger_competitors',
-    'average_revenue_per_passenger_RENFE',
     'average_revenue_per_passenger_competitors',
 ]
 
@@ -109,6 +119,83 @@ def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2) -> float:
     price = round(price, 2)
 
     return price
+
+def calculate_revenue(agg_dataset, renfe=True):
+    if renfe:
+        label = 'renfe'
+    else:
+        label = 'competitors'
+    temp_results = {}
+
+    # Calculate the original revenue and new revenue for each row in the dataset
+    agg_dataset['original_revenue_list'] = agg_dataset.apply(lambda row: [p * row['original_price'] for p in row['original_passengers_list']], axis=1)
+    agg_dataset['revenue_list'] = agg_dataset.apply(lambda row: [p * row['optimized_price'] for p in row['passengers_list']], axis=1)
+
+    # Save the revenue data to CSV files
+    revenue_path = os.path.join(path_validation_results, optim_model, f"{ml_model}_validation_delta_{delta}_revenue_{label}.csv")
+    agg_dataset.to_csv(revenue_path, index=False)
+    print(f"{label.capitalize()} revenue data saved to {revenue_path}")
+
+    # Compute the summary statistics for the revenue data
+    for day in days_to_test:
+        day_data = agg_dataset[agg_dataset['day'] == day]
+
+        original_revenue_matrix = np.array(day_data['original_revenue_list'].tolist(), dtype=float)
+        original_revenue = original_revenue_matrix.sum(axis=0)
+        original_revenue_mean = original_revenue.mean()
+        original_revenue_std = original_revenue.std()
+        original_revenue_se = original_revenue_std / np.sqrt(len(original_revenue))
+
+        revenue_matrix = np.array(day_data['revenue_list'].tolist(), dtype=float)
+        actual_revenue = revenue_matrix.sum(axis=0)
+        actual_revenue_mean = actual_revenue.mean()
+        actual_revenue_std = actual_revenue.std()
+        actual_revenue_se = actual_revenue_std / np.sqrt(len(actual_revenue))
+
+        revenue_difference = actual_revenue - original_revenue
+        revenue_difference_mean = revenue_difference.mean()
+        revenue_difference_std = revenue_difference.std()
+        revenue_difference_se = revenue_difference_std / np.sqrt(len(revenue_difference))
+
+        original_passengers_matrix = np.array(day_data['original_passengers_list'].tolist(), dtype=int)
+        original_passengers = original_passengers_matrix.sum(axis=0)
+        original_passengers_mean = original_passengers.mean()
+        original_passengers_std = original_passengers.std()
+        original_passengers_se = original_passengers_std / np.sqrt(len(original_passengers))
+
+        passengers_matrix = np.array(day_data['passengers_list'].tolist(), dtype=int)
+        new_passengers = passengers_matrix.sum(axis=0)
+        new_passengers_mean = new_passengers.mean()
+        new_passengers_std = new_passengers.std()
+        new_passengers_se = new_passengers_std / np.sqrt(len(new_passengers))
+
+        print(f"{label.capitalize()} revenue for day {day}: Actual revenue (mean): {actual_revenue_mean:,.2f}€, Original Revenue (mean): {original_revenue_mean:,.2f}€, "
+            f"Difference: {actual_revenue_mean - original_revenue_mean:,.2f}€ ({(actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100:.2f}%)")
+        
+        # Store the results in the temp_results dictionary
+        temp_results[day] = {
+            'original_passengers_mean': original_passengers_mean,
+            'original_passengers_std': original_passengers_std,
+            'original_passengers_se': original_passengers_se,
+            'new_passengers_mean': new_passengers_mean,
+            'new_passengers_std': new_passengers_std,
+            'new_passengers_se': new_passengers_se,
+            'original_revenue_mean': original_revenue_mean,
+            'original_revenue_std': original_revenue_std,
+            'original_revenue_se': original_revenue_se,
+            'actual_revenue_mean': actual_revenue_mean,
+            'actual_revenue_std': actual_revenue_std,
+            'actual_revenue_se': actual_revenue_se,
+            'revenue_difference_mean': revenue_difference_mean,
+            'revenue_difference_std': revenue_difference_std,
+            'revenue_difference_se': revenue_difference_se,
+            'revenue_difference_percentage': (actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100,
+            'average_original_revenue_per_passenger': original_revenue_mean / original_passengers_mean if original_passengers_mean > 0 else 0,
+            'average_revenue_per_passenger': actual_revenue_mean / new_passengers_mean if new_passengers_mean > 0 else 0
+        }
+    
+    return temp_results
+
 
 if __name__ == '__main__':
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -457,97 +544,48 @@ if __name__ == '__main__':
                 agg_dataset_RENFE = agg_dataset[(agg_dataset['train_type'] == 'AVE') | (agg_dataset['train_type'] == 'AVLO')].copy()
                 agg_dataset_competitors = agg_dataset[~((agg_dataset['train_type'] == 'AVE') | (agg_dataset['train_type'] == 'AVLO'))].copy()
 
-                agg_dataset_RENFE['original_revenue_list'] = agg_dataset_RENFE.apply(lambda row: [p * row['original_price'] for p in row['original_passengers_list']], axis=1)
-                agg_dataset_competitors['original_revenue_list'] = agg_dataset_competitors.apply(lambda row: [p * row['original_price'] for p in row['original_passengers_list']], axis=1)
-                
-                # Calculate the new revenue
-                agg_dataset_RENFE['revenue_list'] = agg_dataset_RENFE.apply(lambda row: [p * row['optimized_price'] for p in row['passengers_list']], axis=1)
-                agg_dataset_competitors['revenue_list'] = agg_dataset_competitors.apply(lambda row: [p * row['optimized_price'] for p in row['passengers_list']], axis=1)
-
-                # Save the Renfe revenue data
-                renfe_revenue_path = os.path.join(path_validation_results, optim_model, f"{ml_model}_validation_delta_{delta}_renfe_revenue.csv")
-                agg_dataset_RENFE.to_csv(renfe_revenue_path, index=False)
-                print(f"Renfe revenue data saved to {renfe_revenue_path}")
-
-
                 #%%
-                print("Total revenue for Renfe (AVE + AVLO):")
+                # Apply the revenue calculation for RENFE and competitors
                 for day in days_to_test:
-                    day_data = agg_dataset_RENFE[agg_dataset_RENFE['day'] == day]
-
-                    original_revenue_matrix = np.array(day_data['original_revenue_list'].tolist(), dtype=float)
-                    original_revenue = original_revenue_matrix.sum(axis=0)
-                    original_revenue_mean = original_revenue.mean()
-                    original_revenue_std = original_revenue.std()
-                    original_revenue_se = original_revenue_std / np.sqrt(len(original_revenue))
-
-                    revenue_matrix = np.array(day_data['revenue_list'].tolist(), dtype=float)
-                    actual_revenue = revenue_matrix.sum(axis=0)
-                    actual_revenue_mean = actual_revenue.mean()
-                    actual_revenue_std = actual_revenue.std()
-                    actual_revenue_se = actual_revenue_std / np.sqrt(len(actual_revenue))
-
-                    revenue_difference = actual_revenue - original_revenue
-                    revenue_difference_mean = revenue_difference.mean()
-                    revenue_difference_std = revenue_difference.std()
-                    revenue_difference_se = revenue_difference_std / np.sqrt(len(revenue_difference))
-
-                    original_passengers_matrix = np.array(day_data['original_passengers_list'].tolist(), dtype=int)
-                    original_passengers = original_passengers_matrix.sum(axis=0)
-                    original_passengers_mean = original_passengers.mean()
-                    original_passengers_std = original_passengers.std()
-                    original_passengers_se = original_passengers_std / np.sqrt(len(original_passengers))
-
-                    passengers_matrix = np.array(day_data['passengers_list'].tolist(), dtype=int)
-                    new_passengers = passengers_matrix.sum(axis=0)
-                    new_passengers_mean = new_passengers.mean()
-                    new_passengers_std = new_passengers.std()
-                    new_passengers_se = new_passengers_std / np.sqrt(len(new_passengers))
-
-                    print(f"Day {day}: Actual revenue (mean): {actual_revenue_mean:,.2f}€, Original Revenue (mean): {original_revenue_mean:,.2f}€, "
-                        f"Difference: {actual_revenue_mean - original_revenue_mean:,.2f}€ ({(actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100:.2f}%)")
-                    
-                    day_data_competitors = agg_dataset_competitors[agg_dataset_competitors['day'] == day]
-                    comp_original_revenue_matrix = np.array(day_data_competitors['original_revenue_list'].tolist(), dtype=float)
-                    comp_original_passengers_matrix = np.array(day_data_competitors['original_passengers_list'].tolist(), dtype=float)
-                    comp_revenue_matrix = np.array(day_data_competitors['revenue_list'].tolist(), dtype=float)
-                    comp_passengers_matrix = np.array(day_data_competitors['passengers_list'].tolist(), dtype=float)
-
-                    comp_original_revenue_total = comp_original_revenue_matrix.sum()
-                    comp_original_passengers_total = comp_original_passengers_matrix.sum()
-                    comp_revenue_total = comp_revenue_matrix.sum()
-                    comp_passengers_total = comp_passengers_matrix.sum()
-
-                    average_original_revenue_per_passenger_competitors = comp_original_revenue_total / comp_original_passengers_total if comp_original_passengers_total > 0 else 0
-                    average_revenue_per_passenger_competitors = comp_revenue_total / comp_passengers_total if comp_passengers_total > 0 else 0
-
-                    # Append the results to the final results dataframe
+                    renfe_results = calculate_revenue(agg_dataset_RENFE, renfe=True)
+                    competitors_results = calculate_revenue(agg_dataset_competitors, renfe=False)
+   
                     final_results.loc[len(final_results)] = {
                         'optim_model': optim_model,
                         'ml_model': ml_model,
                         'delta': delta,
                         'day': day,
-                        'original_passengers_mean': original_passengers_mean,
-                        'original_passengers_std': original_passengers_std,
-                        'original_passengers_se': original_passengers_se,
-                        'new_passengers_mean': new_passengers_mean,
-                        'new_passengers_std': new_passengers_std,
-                        'new_passengers_se': new_passengers_se,
-                        'original_revenue_mean': original_revenue_mean,
-                        'original_revenue_std': original_revenue_std,
-                        'original_revenue_se': original_revenue_se,
+                        'original_passengers_mean': renfe_results[day]['original_passengers_mean'],
+                        'original_passengers_std': renfe_results[day]['original_passengers_std'],
+                        'original_passengers_se': renfe_results[day]['original_passengers_se'],
+                        'new_passengers_mean': renfe_results[day]['new_passengers_mean'],
+                        'new_passengers_std': renfe_results[day]['new_passengers_std'],
+                        'new_passengers_se': renfe_results[day]['new_passengers_se'],
+                        'original_revenue_mean': renfe_results[day]['original_revenue_mean'],
+                        'original_revenue_std': renfe_results[day]['original_revenue_std'],
+                        'original_revenue_se': renfe_results[day]['original_revenue_se'],
                         'optimized_revenue': best_optim_revenue[day],
-                        'actual_revenue_mean': actual_revenue_mean,
-                        'actual_revenue_std': actual_revenue_std,
-                        'actual_revenue_se': actual_revenue_se,
-                        'revenue_difference_mean': revenue_difference_mean,
-                        'revenue_difference_std': revenue_difference_std,
-                        'revenue_difference_se': revenue_difference_se,
-                        'revenue_difference_percentage': (actual_revenue_mean - original_revenue_mean) / original_revenue_mean * 100,
-                        'average_original_revenue_per_passenger_RENFE': original_revenue_mean / original_passengers_mean if original_passengers_mean > 0 else 0,
-                        'average_original_revenue_per_passenger_competitors': average_original_revenue_per_passenger_competitors,
-                        'average_revenue_per_passenger_RENFE': actual_revenue_mean / new_passengers_mean if new_passengers_mean > 0 else 0,
-                        'average_revenue_per_passenger_competitors': average_revenue_per_passenger_competitors
+                        'actual_revenue_mean': renfe_results[day]['actual_revenue_mean'],
+                        'actual_revenue_std': renfe_results[day]['actual_revenue_std'],
+                        'actual_revenue_se': renfe_results[day]['actual_revenue_se'],
+                        'revenue_difference_mean': renfe_results[day]['revenue_difference_mean'],
+                        'revenue_difference_std': renfe_results[day]['revenue_difference_std'],
+                        'revenue_difference_se': renfe_results[day]['revenue_difference_se'],
+                        'revenue_difference_percentage': renfe_results[day]['revenue_difference_percentage'],
+                        'average_original_revenue_per_passenger': renfe_results[day]['average_original_revenue_per_passenger'],
+                        'average_revenue_per_passenger': renfe_results[day]['average_revenue_per_passenger'],
+                        'original_revenue_mean_competitors': competitors_results[day]['original_revenue_mean'],
+                        'original_revenue_std_competitors': competitors_results[day]['original_revenue_std'],
+                        'original_revenue_se_competitors': competitors_results[day]['original_revenue_se'],
+                        'actual_revenue_mean_competitors': competitors_results[day]['actual_revenue_mean'],
+                        'actual_revenue_std_competitors': competitors_results[day]['actual_revenue_std'],
+                        'actual_revenue_se_competitors': competitors_results[day]['actual_revenue_se'],
+                        'revenue_difference_mean_competitors': competitors_results[day]['revenue_difference_mean'],
+                        'revenue_difference_std_competitors': competitors_results[day]['revenue_difference_std'],
+                        'revenue_difference_se_competitors': competitors_results[day]['revenue_difference_se'],
+                        'revenue_difference_percentage_competitors': competitors_results[day]['revenue_difference_percentage'],
+                        'average_original_revenue_per_passenger_competitors': competitors_results[day]['average_original_revenue_per_passenger'],
+                        'average_revenue_per_passenger_competitors': competitors_results[day]['average_revenue_per_passenger']
                     }
 
                 #%%
