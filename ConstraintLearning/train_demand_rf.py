@@ -200,7 +200,7 @@ for i in range(1, len(nest_results['val_mse'])):
     improvement_rates.append(improvement_per_tree)
 
 if improvement_rates:
-    min_improvement_threshold = 0.001 / 100  # 0.1% MSE improvement per tree
+    min_improvement_threshold = 0.001 # 0.1% MSE improvement per tree
     diminishing_returns_idx = None
     for i, rate in enumerate(improvement_rates):
         if rate < min_improvement_threshold:

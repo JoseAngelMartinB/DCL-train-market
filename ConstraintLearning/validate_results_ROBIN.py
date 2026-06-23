@@ -110,9 +110,14 @@ def get_competitors_price(ref_price, t, PR1, PR2, t_R1, t_R2) -> float:
 
     d_tr1 = max(abs((t - t_R1).total_seconds() / 60), 1)
     d_tr2 = max(abs((t - t_R2).total_seconds() / 60), 1)
-    denominator = 2/3 + 1/d_tr1 + 1/d_tr2
-
-    price = 2/3 * ref_price/denominator + 1/d_tr1 * PR1/denominator + 1/d_tr2 * PR2/denominator
+    
+    w_ref = 2 / 3
+    w_PR1 = 1 / d_tr1
+    w_PR2 = 1 / d_tr2
+    price = (
+        (w_ref * ref_price + w_PR1 * PR1 + w_PR2 * PR2)
+        / (w_ref + w_PR1 + w_PR2)
+    )
     
     # Ensure the price is within the specified interval
     price = max(min(price, COMPETITORS_PRICES_INTERVAL[1]), COMPETITORS_PRICES_INTERVAL[0])
