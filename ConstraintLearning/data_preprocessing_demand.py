@@ -56,7 +56,8 @@ if __name__ == "__main__":
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     PROJECT_ROOT = os.path.dirname(BASE_DIR)
     path_data = os.path.join(
-        PROJECT_ROOT, "DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv"
+    #    PROJECT_ROOT, "DataGenerationROBIN/data/MAD-BCN/aggregated/MAD-BCN_2025.csv"
+         PROJECT_ROOT, "DataGenerationROBIN/data/MAD-BCN/augmented_aggregated/MAD-BCN_2025.csv"
     )
     X, y = load_data(path_data)
 
@@ -95,5 +96,6 @@ if __name__ == "__main__":
     # Join X_processed and y into a single DataFrame and save as CSV
     df_clean = X_processed.copy()
     df_clean["passengers"] = y
-    output_path = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
+    #output_path = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
+    output_path = os.path.join(BASE_DIR, "preprocesed_data/augmented_demand_MAD-BCN_2025.csv")
     df_clean.to_csv(output_path, index=False)
