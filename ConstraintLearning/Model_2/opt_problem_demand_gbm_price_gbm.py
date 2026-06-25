@@ -37,7 +37,7 @@ DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
 DEMAND_UNUSED_COLS = ['service_id', 'capacity']
 PRICE_DATASET = 'ConstraintLearning/preprocesed_data/price_RENFE_MAD-BCN_2025.csv'
 PRICE_UNUSED_COLS = ['service_id']
-DEMAND_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/demand_gbm_model.pkl")
+DEMAND_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/augmented_demand_gbm_model.pkl")
 PRICE_MODEL_PATH = os.path.join(project_root, "ConstraintLearning/saved_models/price_gbm_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_2/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
@@ -48,6 +48,7 @@ MIPGap = 0.002  # Optimality gap for optimization
 TIME_LIMIT = 6 * 3600  # Time limit for optimization
 MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
+FIXED_SPLIT_PRUNE_TOL = 1e-5
 
 # Define different scenarios to test (start with smaller set for testing the new model)
 DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
@@ -152,12 +153,13 @@ print(f"Total nodes across both models: {total_nodes}")
 # --- Load both DataFrames ---
 # Check if files exist
 for csv_path in [DEMAND_DATASET, PRICE_DATASET]:
+    csv_path = os.path.join(project_root, csv_path)
     if not os.path.exists(csv_path):
         print(f"CSV file not found at: {csv_path}")
         sys.exit(1)
 
-demand_df = pd.read_csv(DEMAND_DATASET)
-price_df = pd.read_csv(PRICE_DATASET)
+demand_df = pd.read_csv(os.path.join(project_root, DEMAND_DATASET))
+price_df = pd.read_csv(os.path.join(project_root, PRICE_DATASET))
 
 # Extract date from service_id in the original DataFrame
 def extract_date(service_id):
@@ -203,7 +205,7 @@ def get_tree_structure(tree):
     
     return nodes_info
 
-def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, train_idx, model_name=""):
+def add_single_tree_constraints(opt_model, tree, scaled_features, fixed_scaled_features, tree_idx, train_idx, model_name=""):
     """Add constraints for a single tree in a GBM model"""
     tree_info = get_tree_structure(tree)
     
@@ -234,6 +236,16 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
                 node_vars[left_child] + node_vars[right_child] == node_vars[node_id],
                 name=f"{model_name}_tree_{tree_idx}_flow_{node_id}_train_{train_idx}"
             )
+
+            # Redundant bound propagation for splits on fixed features. The original
+            # Big-M constraints already make the opposite branch infeasible; setting
+            # UB=0 exposes that fact to presolve without changing the formulation.
+            if feature_idx in fixed_scaled_features:
+                fixed_value = fixed_scaled_features[feature_idx]
+                if fixed_value <= threshold - FIXED_SPLIT_PRUNE_TOL:
+                    node_vars[right_child].UB = 0
+                elif fixed_value >= threshold + FIXED_SPLIT_PRUNE_TOL:
+                    node_vars[left_child].UB = 0
             
             # Use robust Big M values
             M_left = 12  # Conservative Big M for standardized features
@@ -253,9 +265,11 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     # Create tree output as weighted sum of leaf values
     leaf_terms = []
+    leaf_values = []
     for node in tree_info:
         if node['is_leaf']:
             leaf_terms.append(node['value'] * node_vars[node['node_id']])
+            leaf_values.append(node['value'])
     
     # Exactly one leaf must be active (SOS1 constraint)
     leaf_vars = [node_vars[node['node_id']] for node in tree_info if node['is_leaf']]
@@ -263,7 +277,8 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     # Tree output
     tree_output_var = opt_model.addVar(
-        lb=-gp.GRB.INFINITY, 
+        lb=min(leaf_values),
+        ub=max(leaf_values),
         name=f"{model_name}_tree_{tree_idx}_out_train_{train_idx}"
     )
     
@@ -274,7 +289,7 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     return tree_output_var
 
-def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction, model_name, target_scaler):
+def add_gbm_constraints(opt_model, trees_to_use, scaled_features, fixed_scaled_features, train_idx, learning_rate, initial_prediction, model_name, target_scaler):
     """Add Gradient Boosting Machine constraints"""
     
     # Get individual tree outputs 
@@ -282,7 +297,7 @@ def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, lea
     for tree_idx, tree_estimator in enumerate(trees_to_use):
         tree = tree_estimator[0]
         tree_output = add_single_tree_constraints(
-            opt_model, tree, scaled_features, tree_idx, train_idx, model_name
+            opt_model, tree, scaled_features, fixed_scaled_features, tree_idx, train_idx, model_name
         )
         tree_outputs.append(tree_output)
     
@@ -325,6 +340,11 @@ def create_scaled_feature_for_price_model(opt_model, feature_val, feature_idx, p
     )
     
     return scaled_feature
+
+def is_fixed_value(value):
+    # If value is a numeric type (int, float, np.integer, np.floating), consider it fixed,
+    # otherwise, if it's a Gurobi variable, it's not fixed.
+    return isinstance(value, (int, float, np.integer, np.floating))
 
 # Main optimization loop
 print("\n" + "="*80)
@@ -381,6 +401,7 @@ for day in DAYS:
         # Optimize Gurobi parameters for very large MILPs
         opt_m.setParam('OutputFlag', 1)
         opt_m.setParam('Threads', 0)  # Use all available cores
+        opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('MIPGap', MIPGap)  # Set optimality gap
         opt_m.setParam('Heuristics', 0.1)  # 10% time on heuristics
         opt_m.setParam('NodefileStart', 16.0)  # Start writing node file after 16 GB
@@ -475,6 +496,7 @@ for day in DAYS:
 
                 # Prepare scaled features for Price GBM
                 price_scaled_features = {}
+                price_fixed_scaled_features = {}
                 
                 for i, feature_name in enumerate(price_features):
                     if feature_name.startswith('price_competitor_'):
@@ -519,16 +541,20 @@ for day in DAYS:
                             
                     # Scale the feature
                     if feature_name in price_scaled_features_names:
+                        if is_fixed_value(feature_val):
+                            price_fixed_scaled_features[i] = (feature_val - price_feature_means[i]) / price_feature_stds[i]
                         price_scaled_features[i] = create_scaled_feature_for_price_model(
                             opt_m, feature_val, i, price_feature_means, price_feature_stds, 
                             day_price_idx, feature_name
                         )
                     else:
                         price_scaled_features[i] = feature_val
+                        if is_fixed_value(feature_val):
+                            price_fixed_scaled_features[i] = feature_val
                 
                 # Add Price GBM constraints and get predicted price
                 predicted_price = add_gbm_constraints(
-                    opt_m, price_trees, price_scaled_features, train_idx, 
+                    opt_m, price_trees, price_scaled_features, price_fixed_scaled_features, train_idx,
                     price_learning_rate, price_initial_prediction, 
                     "price", price_target_scaler
                 )
@@ -545,6 +571,7 @@ for day in DAYS:
             
             # Prepare scaled features for Demand GBM
             demand_scaled_features = {}
+            demand_fixed_scaled_features = {}
             
             for i, feature_name in enumerate(demand_features):
                 if feature_name == 'price':
@@ -557,6 +584,8 @@ for day in DAYS:
                         feature_val = demand_context[i]  # Fixed original price
                         
                     demand_scaled_features[i] = (feature_val - demand_feature_means[i]) / demand_feature_stds[i]
+                    if is_fixed_value(feature_val):
+                        demand_fixed_scaled_features[i] = demand_scaled_features[i]
                     
                 elif feature_name.startswith('price_competitor_'):
                     # Handle competitor prices in demand model
@@ -582,13 +611,16 @@ for day in DAYS:
                         feature_val = demand_context[i]
                         
                     demand_scaled_features[i] = (feature_val - demand_feature_means[i]) / demand_feature_stds[i]
+                    if is_fixed_value(feature_val):
+                        demand_fixed_scaled_features[i] = demand_scaled_features[i]
                 else:
                     # Regular feature, scale it normally
                     demand_scaled_features[i] = (demand_context[i] - demand_feature_means[i]) / demand_feature_stds[i]
+                    demand_fixed_scaled_features[i] = demand_scaled_features[i]
             
             # Add Demand GBM constraints and get predicted demand
             demand_output_var = add_gbm_constraints(
-                opt_m, demand_trees, demand_scaled_features, train_idx,
+                opt_m, demand_trees, demand_scaled_features, demand_fixed_scaled_features, train_idx,
                 demand_learning_rate, demand_initial_prediction,
                 "demand", demand_target_scaler
             )
@@ -702,12 +734,8 @@ for day in DAYS:
         # --- Save results to CSV ---
         if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
             try:
-                # Get the objective value
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    # For interrupted or time limit, use the best value found so far
-                    objective_value = opt_m.ObjVal
+                # Use the incumbent solution value
+                objective_value = opt_m.objVal
                 
                 # Get service_ids for the selected day
                 day_service_ids = day_demand_df['service_id'].tolist()
