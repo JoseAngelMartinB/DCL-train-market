@@ -44,6 +44,7 @@ MIPGap = 0.001  # Optimality gap for optimization
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
 MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
+FIXED_SPLIT_PRUNE_TOL = 1e-5
 
 # Define different scenarios to test (start with just one scenario for testing)
 DELTA_VALUES = [5,10,20] # Delta values indicate the price variation (+/-) in euros allowed
@@ -174,7 +175,7 @@ def get_tree_structure(tree):
     
     return nodes_info
 
-def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, train_idx):
+def add_single_tree_constraints(opt_model, tree, scaled_features, fixed_scaled_features, tree_idx, train_idx):
     """Add constraints for a single tree in the Gradient Boosting model - optimized version"""
     tree_info = get_tree_structure(tree)
     
@@ -205,6 +206,16 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
                 node_vars[left_child] + node_vars[right_child] == node_vars[node_id],
                 name=f"tree_{tree_idx}_flow_{node_id}_train_{train_idx}"
             )
+
+            # Redundant bound propagation for splits on fixed features. The original
+            # Big-M constraints already make the opposite branch infeasible; setting
+            # UB=0 exposes that fact to presolve without changing the formulation.
+            if feature_idx in fixed_scaled_features:
+                fixed_value = fixed_scaled_features[feature_idx]
+                if fixed_value <= threshold - FIXED_SPLIT_PRUNE_TOL:
+                    node_vars[right_child].UB = 0
+                elif fixed_value >= threshold + FIXED_SPLIT_PRUNE_TOL:
+                    node_vars[left_child].UB = 0
             
             # Use robust Big M values - not too tight to avoid infeasibility
             # Features are standardized, so they typically range from -3 to +3
@@ -226,9 +237,11 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     # Create tree output as weighted sum of leaf values
     leaf_terms = []
+    leaf_values = []
     for node in tree_info:
         if node['is_leaf']:
             leaf_terms.append(node['value'] * node_vars[node['node_id']])
+            leaf_values.append(node['value'])
     
     # Exactly one leaf must be active (SOS1 constraint - more efficient)
     leaf_vars = [node_vars[node['node_id']] for node in tree_info if node['is_leaf']]
@@ -236,7 +249,8 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     # Tree output
     tree_output_var = opt_model.addVar(
-        lb=-gp.GRB.INFINITY, 
+        lb=min(leaf_values),
+        ub=max(leaf_values),
         name=f"tree_{tree_idx}_out_train_{train_idx}"
     )
     
@@ -247,7 +261,7 @@ def add_single_tree_constraints(opt_model, tree, scaled_features, tree_idx, trai
     
     return tree_output_var
 
-def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction):
+def add_gbm_constraints(opt_model, trees_to_use, scaled_features, fixed_scaled_features, train_idx, learning_rate, initial_prediction):
     """Add Gradient Boosting Machine constraints - following OptiCL approach"""
     
     # Get individual tree outputs 
@@ -256,7 +270,7 @@ def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, lea
         # GBM estimators are stored as arrays, get the first (and only) tree
         tree = tree_estimator[0]
         tree_output = add_single_tree_constraints(
-            opt_model, tree, scaled_features, tree_idx, train_idx
+            opt_model, tree, scaled_features, fixed_scaled_features, tree_idx, train_idx
         )
         tree_outputs.append(tree_output)
     
@@ -324,7 +338,7 @@ for day in DAYS:
         opt_m.setParam('Threads', 0)  # Use all available cores (0 = automatic)
         #opt_m.setParam('MIPFocus', 3)  # Focus on improving bounds
         #opt_m.setParam('Cuts', 2)  # Aggressive cuts
-        #opt_m.setParam('Presolve', 2)  # Aggressive presolve
+        opt_m.setParam('Presolve', 2)  # Aggressive presolve
         opt_m.setParam('Heuristics', 0.1)  # Spend 10% time on heuristics
         opt_m.setParam('NodefileStart', 12.0)  # Start writing node file after 12 GB
         opt_m.setParam('MIPGap', MIPGap)  # Set optimality gap
@@ -379,6 +393,7 @@ for day in DAYS:
 
             # --- Prepare scaled features for the Gradient Boosting Machine ---
             scaled_features = {}
+            fixed_scaled_features = {}
             
             for i in range(len(feature_names)):
                 if i == price_idx:
@@ -388,11 +403,13 @@ for day in DAYS:
                     else:
                         # Use fixed price and scale it
                         scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                        fixed_scaled_features[i] = scaled_features[i]
                 elif i in [PRICE_COMP_M2_IDX, PRICE_COMP_M1_IDX, PRICE_COMP_P1_IDX, PRICE_COMP_P2_IDX]:
                     # Handle competitor prices - CORRECTED to match validation logic
                     if i == PRICE_COMP_M2_IDX:
                         if train_idx < 2:  # First two trains - use original value
                             scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                            fixed_scaled_features[i] = scaled_features[i]
                         else:
                             # Check if competitor train (train_idx-2) is AVE/AVLO
                             competitor_context = day_context_matrix[train_idx - 2] 
@@ -403,9 +420,11 @@ for day in DAYS:
                             else:
                                 # Competitor is not AVE/AVLO, use its fixed original price
                                 scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                                fixed_scaled_features[i] = scaled_features[i]
                     elif i == PRICE_COMP_M1_IDX:
                         if train_idx < 1:  # First train - use original value
                             scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                            fixed_scaled_features[i] = scaled_features[i]
                         else:
                             # Check if competitor train (train_idx-1) is AVE/AVLO
                             competitor_context = day_context_matrix[train_idx - 1]
@@ -416,9 +435,11 @@ for day in DAYS:
                             else:
                                 # Competitor is not AVE/AVLO, use its fixed original price
                                 scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                                fixed_scaled_features[i] = scaled_features[i]
                     elif i == PRICE_COMP_P1_IDX:
                         if train_idx >= n_trains_context - 1:  # Last train - use original value
                             scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                            fixed_scaled_features[i] = scaled_features[i]
                         else:
                             # Check if competitor train (train_idx+1) is AVE/AVLO
                             competitor_context = day_context_matrix[train_idx + 1]
@@ -429,9 +450,11 @@ for day in DAYS:
                             else:
                                 # Competitor is not AVE/AVLO, use its fixed original price
                                 scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                                fixed_scaled_features[i] = scaled_features[i]
                     else:  # PRICE_COMP_P2_IDX
                         if train_idx >= n_trains_context - 2:  # Last two trains - use original value
                             scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                            fixed_scaled_features[i] = scaled_features[i]
                         else:
                             # Check if competitor train (train_idx+2) is AVE/AVLO
                             competitor_context = day_context_matrix[train_idx + 2]
@@ -442,12 +465,17 @@ for day in DAYS:
                             else:
                                 # Competitor is not AVE/AVLO, use its fixed original price
                                 scaled_features[i] = (competitor_context[price_idx] - feature_means[i]) / feature_stds[i]
+                                fixed_scaled_features[i] = scaled_features[i]
                 else:
                     # Fixed feature, scale it
                     scaled_features[i] = (context[i] - feature_means[i]) / feature_stds[i]
+                    fixed_scaled_features[i] = scaled_features[i]
             
             # --- Add Gradient Boosting Machine constraints and get output ---
-            output_var = add_gbm_constraints(opt_m, trees_to_use, scaled_features, train_idx, learning_rate, initial_prediction)
+            output_var = add_gbm_constraints(
+                opt_m, trees_to_use, scaled_features, fixed_scaled_features,
+                train_idx, learning_rate, initial_prediction
+            )
 
 
             # --- ActualDemand logic  ---
