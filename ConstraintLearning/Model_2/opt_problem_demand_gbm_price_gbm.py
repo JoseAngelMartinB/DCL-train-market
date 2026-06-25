@@ -46,6 +46,7 @@ RENFE_PRICES_INTERVAL = [10, 160]
 COMPETITORS_PRICES_INTERVAL = [10, 120]
 MIPGap = 0.002  # Optimality gap for optimization
 TIME_LIMIT = 6 * 3600  # Time limit for optimization
+MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with smaller set for testing the new model)
@@ -299,7 +300,8 @@ def add_gbm_constraints(opt_model, trees_to_use, scaled_features, train_idx, lea
     
     # Transform back to original scale
     gbm_output_original = opt_model.addVar(
-        lb=-gp.GRB.INFINITY,
+        lb=-MAX_PREDICTED_DEMAND,
+        ub=MAX_PREDICTED_DEMAND,
         name=f"{model_name}_out_train_{train_idx}"
     )
     
@@ -411,6 +413,10 @@ for day in DAYS:
             ub=[bounds[1] for bounds in renfe_price_bounds],
             name="renfe_price"
         )
+        for train_idx in range(n_trains_context):
+            lb, ub = renfe_price_bounds[train_idx]
+            original_price = demand_context_matrix[train_idx][demand_price_idx]
+            renfe_price_vars[train_idx].Start = min(max(original_price, lb), ub)
 
         # --- Create competitor price variables (IRYO, OUIGO) ---
         competitor_price_vars = []
@@ -590,10 +596,10 @@ for day in DAYS:
 
             # --- 3. Add ActualDemand logic with capacity constraints ---
             cap = float(capacity_value)
-            M = 2000 # Big M for demand and capacity constraints
+            M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues 
 
             # Handle max(0, output_var)
-            s_aux = opt_m.addVar(lb=0, name=f"demand_nonneg_{train_idx}")
+            s_aux = opt_m.addVar(lb=0, ub=M, name=f"demand_nonneg_{train_idx}")
             bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_demand_nonneg1_{train_idx}")
             opt_m.addConstr(s_aux >= 0, name=f"demand_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= demand_output_var, name=f"demand_nonneg_ge_output_{train_idx}")
@@ -700,7 +706,8 @@ for day in DAYS:
                 if opt_m.status == gp.GRB.OPTIMAL:
                     objective_value = opt_m.objVal
                 else:
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                    # For interrupted or time limit, use the best value found so far
+                    objective_value = opt_m.ObjVal
                 
                 # Get service_ids for the selected day
                 day_service_ids = day_demand_df['service_id'].tolist()

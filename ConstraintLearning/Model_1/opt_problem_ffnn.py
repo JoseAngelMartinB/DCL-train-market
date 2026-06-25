@@ -35,7 +35,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 ML_MODEL_NAME = 'ffnn'
 DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
 UNUSED_COLS = ['service_id', 'capacity']
-SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pt")
+SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/augmented_demand_{ML_MODEL_NAME}_model.pt")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
@@ -205,6 +205,10 @@ for day in DAYS:
             ub=[bounds[1] for bounds in price_bounds],
             name="price"
         )
+        for train_idx in range(n_trains_context):
+            lb, ub = price_bounds[train_idx]
+            original_price = day_context_matrix[train_idx][price_idx]
+            price_vars[train_idx].Start = min(max(original_price, lb), ub)
 
         opt_m.update()
 
@@ -425,12 +429,8 @@ for day in DAYS:
         # --- Save results to CSV ---
         if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
             try:
-                # Get the objective value
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    # For interrupted or time limit, use the best lower bound
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                # Use the incumbent solution value
+                objective_value = opt_m.objVal
                 
                 # Get the service_ids for the selected day
                 day_service_ids = cleaned_df[cleaned_df['date'] == day]['service_id'].tolist()
@@ -611,10 +611,7 @@ for day in DAYS:
                 print(f"  Max relative error:       {max_rel_error:.2f}%")
                 
                 # Save validation results
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                objective_value = opt_m.objVal
                 
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
                 validation_filename = f"validation_ffnn_{day}_delta_{delta}_obj_{objective_str}.csv"

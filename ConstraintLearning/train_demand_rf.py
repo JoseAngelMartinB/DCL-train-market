@@ -17,9 +17,9 @@ from utils import *
 # --- Config ---
 import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
-SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_rf_model.pkl")
-FIG_PATH = os.path.join(BASE_DIR, "figures/demand_rf_")
+DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/augmented_demand_MAD-BCN_2025.csv")
+SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/augmented_demand_rf_model.pkl")
+FIG_PATH = os.path.join(BASE_DIR, "figures/augmented_demand_rf_")
 TARGET_COL = "passengers"
 UNUSED_COLS = ['service_id', 'capacity']
 TEST_SIZE = 0.2

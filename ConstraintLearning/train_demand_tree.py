@@ -17,15 +17,15 @@ from utils import *
 # --- Config ---
 import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/demand_MAD-BCN_2025.csv")
-SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/demand_tree_model.pkl")
-FIG_PATH = os.path.join(BASE_DIR, "figures/demand_tree_")
+DATA_PATH = os.path.join(BASE_DIR, "preprocesed_data/augmented_demand_MAD-BCN_2025.csv")
+SAVED_MODEL_PATH = os.path.join(BASE_DIR, "saved_models/augmented_demand_tree_model.pkl")
+FIG_PATH = os.path.join(BASE_DIR, "figures/augmented_demand_tree_")
 TARGET_COL = "passengers"
 UNUSED_COLS = ['service_id', 'capacity']
 TEST_SIZE = 0.2
 RANDOM_STATE = 2025
-SHOWPLOTS = False  # Set to False to disable plots
-PRICESENS = False  # Set to False to disable sensitivity analysis
+SHOWPLOTS = True  # Set to False to disable plots
+PRICESENS = True  # Set to False to disable sensitivity analysis
 
 # Grid search parameters for Decision Tree
 PARAM_GRID = {

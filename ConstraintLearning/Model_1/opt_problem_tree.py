@@ -35,13 +35,14 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 ML_MODEL_NAME = 'tree'
 DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
 UNUSED_COLS = ['service_id', 'capacity']
-SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
+SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/augmented_demand_{ML_MODEL_NAME}_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
 MIPGap = 0.01  # Set optimality gap
 TIME_LIMIT = 1 * 3600  # Time limit for optimization
+MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test
@@ -281,6 +282,7 @@ for day in DAYS:
                     ub=context[price_idx], 
                     name=f"price_fixed_{train_idx}"
                 )
+            price_var.Start = context[price_idx]  # Set initial value to original price
             price_vars.append(price_var)
 
         opt_m.update()
@@ -340,10 +342,10 @@ for day in DAYS:
             
             # --- ActualDemand logic (same as NN version) ---
             cap = float(capacity_value)
-            M = cap * 1000
+            M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues
 
             # First, handle max(0, output_var)
-            s_aux = opt_m.addVar(lb=0, name=f"output_var_nonneg_{train_idx}")
+            s_aux = opt_m.addVar(lb=0, ub=M, name=f"output_var_nonneg_{train_idx}")
             bin1_aux = opt_m.addVar(vtype=gp.GRB.BINARY, name=f"bin_output_nonneg1_{train_idx}")            
             opt_m.addConstr(s_aux >= 0, name=f"output_var_nonneg_ge_zero_{train_idx}")
             opt_m.addConstr(s_aux >= output_var, name=f"output_var_nonneg_ge_output_{train_idx}")
@@ -414,12 +416,8 @@ for day in DAYS:
         # --- Save results to CSV ---
         if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
             try:
-                # Get the objective value
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    # For interrupted or time limit, use the best lower bound
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                # Use the incumbent solution value
+                objective_value = opt_m.objVal
                 
                 # Get the service_ids for the selected day
                 day_service_ids = cleaned_df[cleaned_df['date'] == day]['service_id'].tolist()

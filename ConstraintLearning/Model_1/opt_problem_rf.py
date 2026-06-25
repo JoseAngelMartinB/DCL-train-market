@@ -35,13 +35,14 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 ML_MODEL_NAME = 'rf'
 DEMAND_DATASET = 'ConstraintLearning/preprocesed_data/demand_MAD-BCN_2025.csv'
 UNUSED_COLS = ['service_id', 'capacity']
-SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/demand_{ML_MODEL_NAME}_model.pkl")
+SAVED_MODEL_PATH = os.path.join(project_root, f"ConstraintLearning/saved_models/augmented_demand_{ML_MODEL_NAME}_model.pkl")
 RESULTS_PATH = os.path.join(project_root, f'ConstraintLearning/Model_1/results_{ML_MODEL_NAME}/')
 CLEAR_PREVIOUS_RESULTS = True  # Set to True to clear previous results
 OPTIM_RESULTS_PATH = os.path.join(project_root, 'ConstraintLearning/Model_1/opt_results.csv')
 RENFE_PRICES_INTERVAL = [10, 160]
 MIPGap = 0.01  # Optimality gap for optimization
 TIME_LIMIT = 3 * 3600  # Time limit for optimization
+MAX_PREDICTED_DEMAND = 1000  # Maximum predicted demand for a train
 DISPLAY_LIMIT = 5  # Limit for displaying train prices on console
 
 # Define different scenarios to test (start with just one scenario for testing)
@@ -261,7 +262,8 @@ def add_rf_constraints(opt_model, trees_to_use, scaled_features, train_idx):
     
     # Transform back to original scale
     rf_output_original = opt_model.addVar(
-        lb=-gp.GRB.INFINITY,
+        lb=-MAX_PREDICTED_DEMAND,
+        ub=MAX_PREDICTED_DEMAND,
         name=f"rf_out_train_{train_idx}"
     )
     
@@ -347,6 +349,10 @@ for day in DAYS:
             ub=[bounds[1] for bounds in price_bounds],
             name="price"
         )
+        for train_idx in range(n_trains_context):
+            lb, ub = price_bounds[train_idx]
+            original_price = day_context_matrix[train_idx][price_idx]
+            price_vars[train_idx].Start = min(max(original_price, lb), ub)
 
         opt_m.update()
 
@@ -405,10 +411,10 @@ for day in DAYS:
             
             # --- ActualDemand logic (simplified since RF predictions are positive) ---
             cap = float(capacity_value)
-            M = 1000
+            M = max(cap * 1.25, MAX_PREDICTED_DEMAND)  # Ensure M is large enough but not too large to avoid numerical issues
 
             # Since RF predictions are always positive, s_aux is just output_var + small epsilon
-            s_aux = opt_m.addVar(lb=0, name=f"demand_positive_{train_idx}")
+            s_aux = opt_m.addVar(lb=0, ub=M, name=f"demand_positive_{train_idx}")
             opt_m.addConstr(s_aux == output_var + 1e-6, name=f"demand_positive_constraint_{train_idx}")
             
             # ActualDemand is min(s_aux, capacity)
@@ -495,12 +501,8 @@ for day in DAYS:
         # --- Save results to CSV ---
         if opt_m.status in [gp.GRB.OPTIMAL, gp.GRB.INTERRUPTED, gp.GRB.TIME_LIMIT]:
             try:
-                # Get the objective value
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    # For interrupted or time limit, use the best lower bound
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                # Use the incumbent solution value
+                objective_value = opt_m.objVal
                 
                 # Get the service_ids for the selected day
                 day_service_ids = cleaned_df[cleaned_df['date'] == day]['service_id'].tolist()
@@ -681,10 +683,7 @@ for day in DAYS:
                 print(f"  Max relative error:       {max_rel_error:.2f}%")
                 
                 # Save validation results
-                if opt_m.status == gp.GRB.OPTIMAL:
-                    objective_value = opt_m.objVal
-                else:
-                    objective_value = opt_m.objBound if opt_m.objBound < gp.GRB.INFINITY else 0
+                objective_value = opt_m.objVal
                 
                 objective_str = f"{objective_value:.2f}".replace('.', '_')
                 validation_filename = f"validation_rf_{day}_delta_{delta}_obj_{objective_str}.csv"
