@@ -23,10 +23,10 @@ num_simulations = 25 # 10 # 25 # 50 # 100
 seed = 2025 # Initial random seed for reproducibility
 num_processors = 5  # Number of processors for parallel execution
 competitors_response = False # If True, competitors' prices are updated based on RENFE prices
+restricted_service_providers = None # [2,4] # Specify a list of service providers whose prices will not be modified: 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO
 keep_validation_results = True # If True, keeps the validation results after execution
 reset_previous_output = False # If True, resets the final results file with all the previous results and starts from scratch
 skip_previous_results = True # If True, skips the experiments that have already been processed in the final results file
-restricted_service_providers = None # [2,4] # 1: AVLO, 2: IRIO, 3: AVE, 4: OUIGO # Do not update prices for these service providers
 COMPETITORS_PRICES_INTERVAL = [10, 140] # Min and max price for competitors' services (same as in data generation)
 clean_original_ROBIN_output = False # If True, removes the original ROBIN output files after execution
 clean_modified_ROBIN_output = True # If True, removes the ROBIN output files for the modified supply configurations after execution
@@ -39,6 +39,8 @@ path_kernel_output = 'validation_data/ROBIN_output/'
 path_services_price = '../DataGenerationROBIN/data/MAD-BCN/prices/prices_ext_MAD-BCN_2025.csv'
 path_original_results = '../DataGenerationROBIN/data/MAD-BCN/aggregated/aggregated_MAD-BCN_2025.csv'
 path_final_results = os.path.join(path_validation_results, f"final_results.csv")
+
+# --- Columns for the final results dataframe ---
 final_results_columns = [
     'optim_model',
     'ml_model',
@@ -63,6 +65,12 @@ final_results_columns = [
     'revenue_difference_percentage',
     'average_original_revenue_per_passenger',
     'average_revenue_per_passenger',
+    'original_passengers_mean_competitors',
+    'original_passengers_std_competitors',
+    'original_passengers_se_competitors',
+    'new_passengers_mean_competitors',
+    'new_passengers_std_competitors',
+    'new_passengers_se_competitors',
     'original_revenue_mean_competitors',
     'original_revenue_std_competitors',
     'original_revenue_se_competitors',
@@ -80,6 +88,9 @@ final_results_columns = [
 
 # Main function to run the ROBIN simulation
 def run_sim(args):
+    """
+    Run the ROBIN simulation for a given set of parameters inside a multiprocessing pool.
+    """
     sim, output_supply_file, path_config_demand, robin_output_path = args
     kernel = Kernel(
         path_config_supply=output_supply_file,
@@ -556,10 +567,12 @@ if __name__ == '__main__':
                     competitors_results = calculate_revenue(agg_dataset_competitors, renfe=False)
    
                     final_results.loc[len(final_results)] = {
+                        # Dataset information
                         'optim_model': optim_model,
                         'ml_model': ml_model,
                         'delta': delta,
                         'day': day,
+                        # RENFE results
                         'original_passengers_mean': renfe_results[day]['original_passengers_mean'],
                         'original_passengers_std': renfe_results[day]['original_passengers_std'],
                         'original_passengers_se': renfe_results[day]['original_passengers_se'],
@@ -579,6 +592,13 @@ if __name__ == '__main__':
                         'revenue_difference_percentage': renfe_results[day]['revenue_difference_percentage'],
                         'average_original_revenue_per_passenger': renfe_results[day]['average_original_revenue_per_passenger'],
                         'average_revenue_per_passenger': renfe_results[day]['average_revenue_per_passenger'],
+                        # Competitors' results
+                        'original_passengers_mean_competitors': competitors_results[day]['original_passengers_mean'],
+                        'original_passengers_std_competitors': competitors_results[day]['original_passengers_std'],
+                        'original_passengers_se_competitors': competitors_results[day]['original_passengers_se'],
+                        'new_passengers_mean_competitors': competitors_results[day]['new_passengers_mean'],
+                        'new_passengers_std_competitors': competitors_results[day]['new_passengers_std'],
+                        'new_passengers_se_competitors': competitors_results[day]['new_passengers_se'],
                         'original_revenue_mean_competitors': competitors_results[day]['original_revenue_mean'],
                         'original_revenue_std_competitors': competitors_results[day]['original_revenue_std'],
                         'original_revenue_se_competitors': competitors_results[day]['original_revenue_se'],
