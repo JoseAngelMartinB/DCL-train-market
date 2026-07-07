@@ -201,30 +201,67 @@ for epoch in range(N_EPOCHS):
 # --- Load best model before evaluation ---
 checkpoint = torch.load(SAVED_MODEL_PATH, weights_only=False)
 model.load_state_dict(checkpoint["model_state_dict"])
-# Check if scaled features match
+
 scaled_feat_checkpoint = checkpoint["scaled_features"]
 if set(scaled_feat_checkpoint) != set(scaled_feat):
     raise ValueError(
         f"Scaled features in checkpoint {scaled_feat_checkpoint} do not match current scaled features {scaled_feat}."
     )
+
 feature_means = checkpoint["feature_means"]
 feature_stds = checkpoint["feature_stds"]
 feature_mins = checkpoint["feature_mins"]
 feature_maxs = checkpoint["feature_maxs"]
 target_mean = checkpoint["target_mean"]
 target_std = checkpoint["target_std"]
+
 print(f"Loaded best model from epoch {best_epoch + 1} with val loss {best_loss:.4f}")
 
-# --- Evaluation ---
-y_pred_inv = y_pred * target_scaler.scale_[0] + target_scaler.mean_[0]
-y_true_inv = y_true * target_scaler.scale_[0] + target_scaler.mean_[0]
 
-print("Final R2:", r2_score(y_true_inv, y_pred_inv))
-print("Final RMSE:", np.sqrt(mean_squared_error(y_true_inv, y_pred_inv)))
-print("Final sMAPE:", smape_score(y_pred_inv, y_true_inv))
-print("Mean abs error:", np.mean(np.abs(y_pred_inv - y_true_inv)))
-print("Mean true:", np.mean(y_true_inv), "Mean pred:", np.mean(y_pred_inv))
-print("Number of negative predictions:", np.sum(y_pred_inv < 0))
+# --- Evaluation helper ---
+def evaluate_model(model, X_tensor, y_tensor, target_scaler):
+    model.eval()
+    with torch.no_grad():
+        y_pred_scaled = model(X_tensor).cpu().numpy().flatten()
+        y_true_scaled = y_tensor.cpu().numpy().flatten()
+
+    y_pred_inv = y_pred_scaled * target_scaler.scale_[0] + target_scaler.mean_[0]
+    y_true_inv = y_true_scaled * target_scaler.scale_[0] + target_scaler.mean_[0]
+
+    r2 = r2_score(y_true_inv, y_pred_inv)
+    rmse = np.sqrt(mean_squared_error(y_true_inv, y_pred_inv))
+    mae = np.mean(np.abs(y_pred_inv - y_true_inv))
+
+    return {
+        "r2": r2,
+        "rmse": rmse,
+        "mae": mae,
+        "y_true_inv": y_true_inv,
+        "y_pred_inv": y_pred_inv,
+    }
+
+
+# --- Final evaluation using the best restored model ---
+train_metrics = evaluate_model(model, X_train_tensor, y_train_tensor, target_scaler)
+val_metrics = evaluate_model(model, X_val_tensor, y_val_tensor, target_scaler)
+
+print("\n=== Final Results (Original Scale) ===")
+print(f"Training R2: {train_metrics['r2']:.4f}")
+print(f"Validation R2: {val_metrics['r2']:.4f}")
+print(f"Validation RMSE: {val_metrics['rmse']:.4f}")
+print(f"Validation MAE: {val_metrics['mae']:.4f}")
+print(
+    f"Mean true: {np.mean(val_metrics['y_true_inv']):.2f}, "
+    f"Mean pred: {np.mean(val_metrics['y_pred_inv']):.2f}"
+)
+print(
+    "Number of negative predictions:",
+    np.sum(val_metrics["y_pred_inv"] < 0)
+)
+
+# Variables used by the diagnostic plots below
+y_true_inv = val_metrics["y_true_inv"]
+y_pred_inv = val_metrics["y_pred_inv"]
 
 
 # --- Plot Loss and R2 curves ---
