@@ -1,0 +1,31 @@
+\begin{table}[!h]
+    \centering
+    \caption{ROBIN validation results under competitor reaction on 2025-08-13 (high-season weekday). Baseline demand: 8,130 passengers for the incumbent operator (RENFE) and 7,878 passengers for the aggregated competitors.}
+    \label{tab:model2_validation_2025_08_13}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \begin{tabular}{llrrrrrrrr}
+        \toprule
+        \textbf{Model spec.}
+        & \(\boldsymbol{\delta}\)
+        & \textbf{New pax}
+        & \textbf{Orig. rev.}
+        & \textbf{Actual rev.}
+        & \textbf{Rev. diff.}
+        & \textbf{(\%)}
+        & \textbf{Comp. pax}
+        & \textbf{Comp. rev.}
+        & \textbf{diff. (\%)} \\
+        \midrule
+        \multicolumn{10}{l}{\textbf{Model~1:}} \\[1ex]
+        \multirow{3}{*}{GBDT} & 5 & 7,832 $\pm$ 269 & 411,345 & 420,633 $\pm$ 14,382 & 9,288 $\pm$ 3,082 & 2.26 & 8,164 $\pm$ 137 & 325,935 $\pm$ 5,762 & 4.56 \\
+         & 10 & 7,798 $\pm$ 289 & 411,345 & 436,554 $\pm$ 15,851 & 25,209 $\pm$ 4,505 & 6.13 & 8,212 $\pm$ 128 & 328,677 $\pm$ 5,257 & 5.44 \\
+         & 20 & 7,745 $\pm$ 330 & 411,345 & 452,935 $\pm$ 19,678 & 41,590 $\pm$ 8,310 & 10.11 & 8,214 $\pm$ 104 & 329,485 $\pm$ 4,090 & 5.70 \\
+        \midrule
+        \multicolumn{10}{l}{\textbf{Model~2:}} \\
+        \multirow{3}{*}{GBDT + GBDT} & 5 & 7,861 $\pm$ 269 & 411,345 & 419,734 $\pm$ 14,744 & 8,389 $\pm$ 3,410 & 2.04 & 8,132 $\pm$ 138 & 324,394 $\pm$ 5,812 & 4.06 \\
+         & 10 & 7,932 $\pm$ 296 & 411,345 & 441,611 $\pm$ 16,416 & 30,266 $\pm$ 5,046 & 7.36 & 8,080 $\pm$ 122 & 323,019 $\pm$ 4,991 & 3.62 \\
+         & 20 & 7,698 $\pm$ 320 & 411,345 & 447,660 $\pm$ 19,399 & 36,315 $\pm$ 8,062 & 8.83 & 8,251 $\pm$ 114 & 329,483 $\pm$ 4,429 & 5.70 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
